@@ -14,18 +14,26 @@ class SensorTrackerApp:
             master: The root Tkinter window.
         """
         self.master = master
-        master.title("System Monitor")
-        master.geometry("500x900") # Retained window size
+        master.title("System Monitor - FrenzyPenguin Media")
+        master.geometry("480x840")
         master.resizable(True, True)
 
+        # Set the application icon. The file 'icon.ico' must be in the same directory.
+        try:
+            master.iconbitmap("icon.ico")
+        except tk.TclError:
+            # Handle the case where the icon file is not found
+            # You can print a message or just ignore it
+            print("Warning: icon.ico not found. The default icon will be used.")
+
         # Set a modern background color for the main window
-        self.bg_main = "#263238" # Darker, more uniform background (Deep Blue Gray)
-        self.bg_frame = "#37474F" # Slightly lighter for frames (Blue Gray)
-        self.fg_text_primary = "#ECEFF1" # Light text for readability
-        self.fg_text_secondary = "#B0BEC5" # Muted text for status/units
-        self.highlight_color = "#607D8B" # Subtle highlight for frames
-        self.button_bg = "#66BB6A" # Green for save log button
-        self.button_fg = "#FFFFFF" # White text for button
+        self.bg_main = "#263238"
+        self.bg_frame = "#37474F"
+        self.fg_text_primary = "#ECEFF1"
+        self.fg_text_secondary = "#B0BEC5"
+        self.highlight_color = "#607D8B"
+        self.button_bg = "#66BB6A"
+        self.button_fg = "#FFFFFF"
 
         master.configure(bg=self.bg_main)
 
@@ -41,10 +49,10 @@ class SensorTrackerApp:
         self.humidity = tk.DoubleVar()
         self.cpu_temp = tk.DoubleVar()
         self.cpu_usage = tk.DoubleVar()
-        self.gpu_temp_1 = tk.DoubleVar() # GPU 1 Temperature
-        self.gpu_usage_1 = tk.DoubleVar() # GPU 1 Usage
-        self.gpu_temp_2 = tk.DoubleVar() # GPU 2 Temperature
-        self.gpu_usage_2 = tk.DoubleVar() # GPU 2 Usage
+        self.gpu_temp_1 = tk.DoubleVar()
+        self.gpu_usage_1 = tk.DoubleVar()
+        self.gpu_temp_2 = tk.DoubleVar()
+        self.gpu_usage_2 = tk.DoubleVar()
         self.last_updated_text = tk.StringVar()
 
         # Dictionary to track if a sensor has ever given a reading
@@ -146,8 +154,8 @@ class SensorTrackerApp:
     def _create_sensor_group_frame(self, parent, title_text):
         """Helper to create a consistent sensor group frame with a title."""
         frame = tk.Frame(parent, bd=0, relief="flat", bg=self.bg_frame, highlightbackground=self.highlight_color, highlightthickness=1, padx=8, pady=3)
-        frame.columnconfigure(1, weight=1) # Value column
-        frame.columnconfigure(2, weight=0) # Unit column
+        frame.columnconfigure(1, weight=1)
+        frame.columnconfigure(2, weight=0)
         frame.columnconfigure(3, weight=0) # Graph column
 
         group_title = tk.Label(frame, text=title_text, font=("Segoe UI", 12, "bold"), fg=self.fg_text_primary, bg=self.bg_frame)
@@ -222,34 +230,28 @@ class SensorTrackerApp:
         """
         Draws a simple line graph on the given canvas.
         """
-        canvas.delete("all") # Clear previous drawings
+        canvas.delete("all")
 
         if len(history_data) < 2:
-            return # Need at least two points to draw a line
+            return
 
         width = canvas.winfo_width()
         height = canvas.winfo_height()
 
-        # Fallback for initial rendering where width/height might be 1
         if width <= 1 or height <= 1:
             width = 80
             height = 25
 
         min_val = min(history_data)
         max_val = max(history_data)
-
-        # Avoid division by zero if all values are the same
         range_val = max_val - min_val if (max_val - min_val) != 0 else 1
 
         points = []
-        # Calculate points for the line graph
         for i, val in enumerate(history_data):
             x = i * (width / (len(history_data) - 1)) if len(history_data) > 1 else width / 2
-            # Invert Y-axis so higher values are higher on the graph
             y = height - ((val - min_val) / range_val) * height
             points.append((x, y))
 
-        # Draw lines connecting the points
         for i in range(len(points) - 1):
             canvas.create_line(points[i][0], points[i][1], points[i+1][0], points[i+1][1], fill=color, width=1.5)
 
@@ -262,7 +264,6 @@ class SensorTrackerApp:
         """
         current_time = time.strftime("%H:%M:%S")
 
-        # Helper to process each sensor's reading, update history, and draw graph
         def _process_sensor(sensor_key, tk_var, log_key, unit_str, graph_color):
             current_val = self.get_simulated_reading(sensor_key)
             if current_val is not None:
@@ -270,17 +271,14 @@ class SensorTrackerApp:
                 self.sensor_has_reading_ever[sensor_key] = True
                 self.current_readings_for_log[log_key] = f"{current_val}{unit_str}"
                 self.sensor_history[sensor_key].append(current_val)
-                # Keep history to a fixed number of points (e.g., last 20 readings)
                 if len(self.sensor_history[sensor_key]) > 20:
-                    self.sensor_history[sensor_key].pop(0) # Remove oldest reading
+                    self.sensor_history[sensor_key].pop(0)
             elif not self.sensor_has_reading_ever[sensor_key]:
                 self.current_readings_for_log[log_key] = "N/A"
 
-            # Draw graph if sensor has ever had a reading and its canvas exists
             if self.sensor_has_reading_ever[sensor_key] and sensor_key in self.graph_canvases:
                 self._draw_graph(self.graph_canvases[sensor_key], self.sensor_history[sensor_key], graph_color)
 
-        # --- Update all sensors ---
         _process_sensor("temperature", self.temperature, "Motherboard Temp", "°C", "#E57373")
         _process_sensor("humidity", self.humidity, "Motherboard Humidity", "%", "#64B5F6")
         _process_sensor("cpu_temp", self.cpu_temp, "CPU Die Temp", "°C", "#FFD54F")
@@ -290,55 +288,41 @@ class SensorTrackerApp:
         _process_sensor("gpu_temp_2", self.gpu_temp_2, "GPU 2 Temp", "°C", "#BA68C8")
         _process_sensor("gpu_usage_2", self.gpu_usage_2, "GPU 2 Usage", "%", "#4DB6AC")
 
-        # --- Manage frame visibility based on 'has_reading_ever' for any sensor in the group ---
-
-        # Environmental Frame
         if self.sensor_has_reading_ever["temperature"] or self.sensor_has_reading_ever["humidity"]:
             if not self.environmental_frame.winfo_ismapped():
                 self.environmental_frame.pack(pady=8, fill="x", padx=20)
 
-        # CPU Frame
         if self.sensor_has_reading_ever["cpu_temp"] or self.sensor_has_reading_ever["cpu_usage"]:
             if not self.cpu_frame.winfo_ismapped():
                 self.cpu_frame.pack(pady=8, fill="x", padx=20)
 
-        # GPU 1 Frame
         if self.sensor_has_reading_ever["gpu_temp_1"] or self.sensor_has_reading_ever["gpu_usage_1"]:
             if not self.gpu_frame_1.winfo_ismapped():
                 self.gpu_frame_1.pack(pady=8, fill="x", padx=20)
 
-        # GPU 2 Frame
         if self.sensor_has_reading_ever["gpu_temp_2"] or self.sensor_has_reading_ever["gpu_usage_2"]:
             if not self.gpu_frame_2.winfo_ismapped():
                 self.gpu_frame_2.pack(pady=8, fill="x", padx=20)
 
-        # --- Update Status Message ---
         self.last_updated_text.set(f"Last Updated: {current_time}")
-
-        # Schedule the next update after 2000 milliseconds (2 seconds)
         self.master.after(2000, self.update_sensors)
 
     def save_to_log(self):
         """
         Saves the current sensor readings to a text log file.
         """
-        # Get the user's Documents directory
         documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-        
-        # Ensure the directory exists
         os.makedirs(documents_path, exist_ok=True)
-
-        # Create a filename with today's date
         file_name = f"System_Monitor_Log_{datetime.datetime.now().strftime('%Y%m%d')}.txt"
         file_path = os.path.join(documents_path, file_name)
 
         try:
-            with open(file_path, "a") as f: # Open in append mode
+            with open(file_path, "a") as f:
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 f.write(f"--- Log Entry: {timestamp} ---\n")
                 for sensor_name, value in self.current_readings_for_log.items():
                     f.write(f"{sensor_name}: {value}\n")
-                f.write("\n") # Add a blank line for separation
+                f.write("\n")
 
             messagebox.showinfo("Log Saved", f"Current readings appended to:\n{file_path}")
 
