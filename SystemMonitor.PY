@@ -34,12 +34,12 @@ class SensorTrackerApp:
 
         master.configure(bg=self.bg_main)
 
-        # Configure attractive fonts
-        self.font_title = ("Segoe UI", 24, "bold")
-        self.font_label = ("Segoe UI", 14)
-        self.font_value = ("Segoe UI", 24, "bold")
-        self.font_status = ("Segoe UI", 10, "italic")
-        self.font_button = ("Segoe UI", 12, "bold")
+        # Configure attractive, smaller fonts for a compact overview
+        self.font_title = ("Segoe UI", 18, "bold")
+        self.font_label = ("Segoe UI", 11)
+        self.font_value = ("Segoe UI", 16, "bold")
+        self.font_status = ("Segoe UI", 8, "italic")
+        self.font_button = ("Segoe UI", 10, "bold")
 
         # --- Sensor Data Variables (all data is now in this one dictionary) ---
         # This makes the app highly dynamic and scalable.
@@ -67,10 +67,10 @@ class SensorTrackerApp:
 
         # --- GUI Elements ---
         self.title_label = tk.Label(master, text="System Monitor", font=self.font_title, fg=self.fg_text_primary, bg=self.bg_main, pady=15)
-        self.title_label.pack(fill="x")
+        self.title_label.pack()
 
         self.status_label = tk.Label(master, textvariable=self.last_updated_text, font=self.font_status, fg=self.fg_text_secondary, bg=self.bg_main)
-        self.status_label.pack(pady=(5, 10), fill="x")
+        self.status_label.pack(pady=(5, 10))
 
         self.save_log_button = tk.Button(master, text="Save to Log",
                                          command=self.save_to_log,
@@ -80,13 +80,15 @@ class SensorTrackerApp:
                                          relief="flat", bd=0, padx=10, pady=5)
         self.save_log_button.pack(pady=(10, 10))
 
+        # Changed to expand and fill for centering and responsiveness
+        # Added a larger left padding to compensate for the scrollbar's width
         self.canvas = tk.Canvas(master, bg=self.bg_main, highlightthickness=0)
-        self.canvas.pack(side="left", fill="both", expand=True)
-
-        self.scrollbar = tk.Scrollbar(master, orient="vertical", command=self.canvas.yview)
-        self.scrollbar.pack(side="right", fill="y")
-
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.pack(fill="both", expand=True, padx=(55, 0))
+        
+        # Hiding the scrollbar as requested
+        # self.scrollbar = tk.Scrollbar(master, orient="vertical", command=self.canvas.yview)
+        # self.scrollbar.pack(side="right", fill="y")
+        # self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
         self.scrollable_frame = tk.Frame(self.canvas, bg=self.bg_main)
         self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
@@ -122,7 +124,8 @@ class SensorTrackerApp:
         for device_name in sorted_devices:
             # Create a frame for the device
             device_frame = self._create_sensor_group_frame(self.scrollable_frame, device_name)
-            device_frame.pack(pady=8, fill="x", padx=20)
+            # Changed to fill horizontally for uniform width, padding is now on the canvas
+            device_frame.pack(pady=8, fill="x")
             
             # Populate the frame with widgets for each sensor in that device group
             for sensor_key, sensor_data in self.all_sensors.items():
@@ -130,21 +133,29 @@ class SensorTrackerApp:
                     self._create_sensor_widgets(device_frame, device_name, sensor_data["label"], sensor_data["var"], sensor_data["unit"], sensor_data["color"], sensor_key)
 
     def _create_sensor_group_frame(self, parent, title_text):
-        """Helper to create a consistent sensor group frame with a title."""
+        """Helper to create a consistent sensor group frame with a title and content that expands."""
         if title_text in self.sensor_frames:
             return self.sensor_frames[title_text]
 
         frame = tk.Frame(parent, bd=0, relief="flat", bg=self.bg_frame, highlightbackground=self.highlight_color, highlightthickness=1, padx=8, pady=3)
-        frame.columnconfigure(1, weight=1)
-        frame.columnconfigure(2, weight=0)
-        frame.columnconfigure(3, weight=0)
+        # Configure columns to allow expansion, but giving weight=0 to the graph column
+        # to constrain its width to the fixed size set below.
+        frame.columnconfigure(0, weight=0)  # Label column
+        frame.columnconfigure(1, weight=0)  # Value column
+        frame.columnconfigure(2, weight=0)  # Unit column
+        frame.columnconfigure(3, weight=0)  # Graph column (no expansion)
         
-        group_title = tk.Label(frame, text=title_text, font=("Segoe UI", 12, "bold"), fg=self.fg_text_primary, bg=self.bg_frame)
+        # Reduced font size for group title
+        group_title = tk.Label(frame, text=title_text, font=("Segoe UI", 10, "bold"), fg=self.fg_text_primary, bg=self.bg_frame)
         group_title.grid(row=0, column=0, columnspan=4, sticky="w", padx=3, pady=(3, 8))
 
         self.sensor_frames[title_text] = frame
         self.frame_widget_rows[title_text] = 1 # Start widget rows after the title
         return frame
+
+    def _on_graph_resize(self, event, sensor_key):
+        """Redraws the graph when its size changes."""
+        self._draw_graph(event.widget, self.all_sensors[sensor_key]['history'], self.all_sensors[sensor_key]['color'])
 
     def _create_sensor_widgets(self, parent_frame, device_name, label_text, var, unit, color, sensor_key):
         """Helper to create sensor labels, values, and a mini-graph within a frame."""
@@ -152,16 +163,18 @@ class SensorTrackerApp:
         self.frame_widget_rows[device_name] += 1
 
         label = tk.Label(parent_frame, text=f"{label_text}:", font=self.font_label, fg=self.fg_text_primary, bg=self.bg_frame)
-        label.grid(row=row, column=0, sticky="w", padx=10, pady=3)
+        label.grid(row=row, column=0, sticky="w", padx=2, pady=3)
 
         value_label = tk.Label(parent_frame, textvariable=var, font=self.font_value, fg=color, bg=self.bg_frame)
-        value_label.grid(row=row, column=1, sticky="e", padx=3, pady=3)
+        value_label.grid(row=row, column=1, sticky="e", padx=2, pady=3)
 
         unit_label = tk.Label(parent_frame, text=unit, font=self.font_value, fg=self.fg_text_secondary, bg=self.bg_frame)
-        unit_label.grid(row=row, column=2, sticky="w", padx=3, pady=3)
+        unit_label.grid(row=row, column=2, sticky="w", padx=2, pady=3)
 
-        graph_canvas = tk.Canvas(parent_frame, width=80, height=25, bg=self.bg_frame, highlightthickness=0)
-        graph_canvas.grid(row=row, column=3, sticky="e", padx=5, pady=3)
+        # Set a fixed, smaller width for the graph canvas
+        graph_canvas = tk.Canvas(parent_frame, width=50, height=25, bg=self.bg_frame, highlightthickness=0)
+        graph_canvas.grid(row=row, column=3, sticky="e", padx=2, pady=3)
+        graph_canvas.bind('<Configure>', lambda event, key=sensor_key: self._on_graph_resize(event, key))
 
         self.graph_canvases[sensor_key] = graph_canvas
 
@@ -219,8 +232,8 @@ class SensorTrackerApp:
         height = canvas.winfo_height()
 
         if width <= 1 or height <= 1:
-            width = 80
-            height = 25
+            # Fallback for cases where the widget size is not yet available
+            return
 
         min_val = min(history_data)
         max_val = max(history_data)
@@ -288,4 +301,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = SensorTrackerApp(root)
     root.mainloop()
-
