@@ -10,4 +10,4 @@ Multiplatform System Health Monitor
 - ...
   
 
-          <img width="350" height="1079" alt="image" src="https://github.com/user-attachments/assets/63dd2592-eb88-43e4-8670-9c46786ab016" />
+  <img width="350" height="1079" alt="image" src="https://github.com/user-attachments/assets/63dd2592-eb88-43e4-8670-9c46786ab016" />
