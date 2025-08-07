@@ -14,7 +14,7 @@ class SensorTrackerApp:
             master: The root Tkinter window.
         """
         self.master = master
-        master.title("System Monitor - FrenzyPenguin Media")
+        master.title("System Monitor")
         master.geometry("480x840")
         master.resizable(True, True)
 
@@ -22,8 +22,6 @@ class SensorTrackerApp:
         try:
             master.iconbitmap("icon.ico")
         except tk.TclError:
-            # Handle the case where the icon file is not found
-            # You can print a message or just ignore it
             print("Warning: icon.ico not found. The default icon will be used.")
 
         # Set a modern background color for the main window
@@ -37,74 +35,44 @@ class SensorTrackerApp:
 
         master.configure(bg=self.bg_main)
 
-        # Configure attractive fonts - slightly smaller for compactness
+        # Configure attractive fonts
         self.font_title = ("Segoe UI", 24, "bold")
         self.font_label = ("Segoe UI", 14)
         self.font_value = ("Segoe UI", 24, "bold")
         self.font_status = ("Segoe UI", 10, "italic")
         self.font_button = ("Segoe UI", 12, "bold")
 
-        # --- Sensor Data Variables ---
-        self.temperature = tk.DoubleVar()
-        self.humidity = tk.DoubleVar()
-        self.cpu_temp = tk.DoubleVar()
-        self.cpu_usage = tk.DoubleVar()
-        self.gpu_temp_1 = tk.DoubleVar()
-        self.gpu_usage_1 = tk.DoubleVar()
-        self.gpu_temp_2 = tk.DoubleVar()
-        self.gpu_usage_2 = tk.DoubleVar()
+        # --- Sensor Data Variables (all data is now in this one dictionary) ---
+        # This makes the app highly dynamic and scalable.
+        self.all_sensors = {
+            "environmental_temp": {"device": "Environmental", "label": "Temp", "unit": "°C", "color": "#E57373", "type": "temperature", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "environmental_humidity": {"device": "Environmental", "label": "Humidity", "unit": "%", "color": "#64B5F6", "type": "humidity", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "cpu_die_temp": {"device": "CPU", "label": "Die Temp", "unit": "°C", "color": "#FFD54F", "type": "cpu_temp", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "cpu_core_usage": {"device": "CPU", "label": "Core Usage", "unit": "%", "color": "#FFB74D", "type": "cpu_usage", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "gpu1_temp": {"device": "GPU 1", "label": "Temp", "unit": "°C", "color": "#BA68C8", "type": "gpu_temp", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "gpu1_usage": {"device": "GPU 1", "label": "Usage", "unit": "%", "color": "#4DB6AC", "type": "gpu_usage", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "gpu2_temp": {"device": "GPU 2", "label": "Temp", "unit": "°C", "color": "#BA68C8", "type": "gpu_temp", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "gpu2_usage": {"device": "GPU 2", "label": "Usage", "unit": "%", "color": "#4DB6AC", "type": "gpu_usage", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            # New, non-GPU sensors
+            "network_usage": {"device": "Network", "label": "Usage", "unit": "%", "color": "#29B6F6", "type": "network_usage", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "disk_temp": {"device": "Storage", "label": "Temp", "unit": "°C", "color": "#9E9E9E", "type": "disk_temp", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "pci_temp": {"device": "PCIe Bus", "label": "Temp", "unit": "°C", "color": "#D32F2F", "type": "pci_temp", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+        }
+
+        # Dictionaries to track sensor state and GUI elements
+        self.current_readings_for_log = {}
+        self.graph_canvases = {}
+        self.sensor_frames = {}
+        self.frame_widget_rows = {}
         self.last_updated_text = tk.StringVar()
 
-        # Dictionary to track if a sensor has ever given a reading
-        self.sensor_has_reading_ever = {
-            "temperature": False,
-            "humidity": False,
-            "cpu_temp": False,
-            "cpu_usage": False,
-            "gpu_temp_1": False,
-            "gpu_usage_1": False,
-            "gpu_temp_2": False,
-            "gpu_usage_2": False,
-        }
-
-        # Store last known readings for logging and graph history
-        self.current_readings_for_log = {
-            "Motherboard Temp": "N/A",
-            "Motherboard Humidity": "N/A",
-            "CPU Die Temp": "N/A",
-            "CPU Core Usage": "N/A",
-            "GPU 1 Temp": "N/A",
-            "GPU 1 Usage": "N/A",
-            "GPU 2 Temp": "N/A",
-            "GPU 2 Usage": "N/A",
-        }
-
-        # Store history of numerical readings for graphs
-        self.sensor_history = {
-            "temperature": [],
-            "humidity": [],
-            "cpu_temp": [],
-            "cpu_usage": [],
-            "gpu_temp_1": [],
-            "gpu_usage_1": [],
-            "gpu_temp_2": [],
-            "gpu_usage_2": [],
-        }
-
-        # Dictionary to store references to each sensor's graph canvas
-        self.graph_canvases = {}
-
         # --- GUI Elements ---
-
-        # Title Label (remains at the top)
         self.title_label = tk.Label(master, text="System Monitor", font=self.font_title, fg=self.fg_text_primary, bg=self.bg_main, pady=15)
         self.title_label.pack(fill="x")
 
-        # Status/Last Updated Label (appears directly below the title)
         self.status_label = tk.Label(master, textvariable=self.last_updated_text, font=self.font_status, fg=self.fg_text_secondary, bg=self.bg_main)
         self.status_label.pack(pady=(5, 10), fill="x")
 
-        # --- Save to Log Button (appears below status label, above canvas) ---
         self.save_log_button = tk.Button(master, text="Save to Log",
                                          command=self.save_to_log,
                                          font=self.font_button,
@@ -113,7 +81,6 @@ class SensorTrackerApp:
                                          relief="flat", bd=0, padx=10, pady=5)
         self.save_log_button.pack(pady=(10, 10))
 
-        # --- Scrollable Area Setup ---
         self.canvas = tk.Canvas(master, bg=self.bg_main, highlightthickness=0)
         self.canvas.pack(side="left", fill="both", expand=True)
 
@@ -130,61 +97,74 @@ class SensorTrackerApp:
         self.canvas.bind_all("<Button-4>", self._on_mousewheel_linux)
         self.canvas.bind_all("<Button-5>", self._on_mousewheel_linux)
 
-        # --- Sensor Group Frames (packed into self.scrollable_frame) ---
-
-        self.environmental_frame = self._create_sensor_group_frame(self.scrollable_frame, "Environmental")
-        self._create_sensor_widgets(self.environmental_frame, "Motherboard", "Temp:", self.temperature, "°C", "#E57373", row=0, sensor_key="temperature")
-        self._create_sensor_widgets(self.environmental_frame, "Motherboard", "Humidity:", self.humidity, "%", "#64B5F6", row=1, sensor_key="humidity")
-
-        self.cpu_frame = self._create_sensor_group_frame(self.scrollable_frame, "CPU")
-        self._create_sensor_widgets(self.cpu_frame, "CPU Die", "Temp:", self.cpu_temp, "°C", "#FFD54F", row=0, sensor_key="cpu_temp")
-        self._create_sensor_widgets(self.cpu_frame, "CPU Core", "Usage:", self.cpu_usage, "%", "#FFB74D", row=1, sensor_key="cpu_usage")
-
-        self.gpu_frame_1 = self._create_sensor_group_frame(self.scrollable_frame, "GPU 1")
-        self._create_sensor_widgets(self.gpu_frame_1, "GPU 1", "Temp:", self.gpu_temp_1, "°C", "#BA68C8", row=0, sensor_key="gpu_temp_1")
-        self._create_sensor_widgets(self.gpu_frame_1, "GPU 1", "Usage:", self.gpu_usage_1, "%", "#4DB6AC", row=1, sensor_key="gpu_usage_1")
-
-        self.gpu_frame_2 = self._create_sensor_group_frame(self.scrollable_frame, "GPU 2")
-        self._create_sensor_widgets(self.gpu_frame_2, "GPU 2", "Temp:", self.gpu_temp_2, "°C", "#BA68C8", row=0, sensor_key="gpu_temp_2")
-        self._create_sensor_widgets(self.gpu_frame_2, "GPU 2", "Usage:", self.gpu_usage_2, "%", "#4DB6AC", row=1, sensor_key="gpu_usage_2")
+        # Initialize the GUI with all known sensors before starting the update loop
+        self._initialize_sensor_gui()
 
         # Start the sensor update loop
         self.update_sensors()
 
+    def _initialize_sensor_gui(self):
+        """Initializes all sensor group frames and widgets at startup."""
+        devices = list(set(s['device'] for s in self.all_sensors.values()))
+        
+        # Create a specific display order for key devices
+        sorted_devices = []
+        if "Network" in devices:
+            sorted_devices.append("Network")
+            devices.remove("Network")
+        if "Environmental" in devices:
+            sorted_devices.append("Environmental")
+            devices.remove("Environmental")
+
+        # Sort the remaining devices alphabetically
+        devices.sort()
+        sorted_devices.extend(devices)
+
+        for device_name in sorted_devices:
+            # Create a frame for the device
+            device_frame = self._create_sensor_group_frame(self.scrollable_frame, device_name)
+            device_frame.pack(pady=8, fill="x", padx=20)
+            
+            # Populate the frame with widgets for each sensor in that device group
+            for sensor_key, sensor_data in self.all_sensors.items():
+                if sensor_data['device'] == device_name:
+                    self._create_sensor_widgets(device_frame, device_name, sensor_data["label"], sensor_data["var"], sensor_data["unit"], sensor_data["color"], sensor_key)
+
     def _create_sensor_group_frame(self, parent, title_text):
         """Helper to create a consistent sensor group frame with a title."""
+        if title_text in self.sensor_frames:
+            return self.sensor_frames[title_text]
+
         frame = tk.Frame(parent, bd=0, relief="flat", bg=self.bg_frame, highlightbackground=self.highlight_color, highlightthickness=1, padx=8, pady=3)
         frame.columnconfigure(1, weight=1)
         frame.columnconfigure(2, weight=0)
-        frame.columnconfigure(3, weight=0) # Graph column
-
+        frame.columnconfigure(3, weight=0)
+        
         group_title = tk.Label(frame, text=title_text, font=("Segoe UI", 12, "bold"), fg=self.fg_text_primary, bg=self.bg_frame)
-        group_title.grid(row=0, column=0, columnspan=4, sticky="w", padx=3, pady=(3, 8)) # Span across 4 columns
+        group_title.grid(row=0, column=0, columnspan=4, sticky="w", padx=3, pady=(3, 8))
 
-        frame.content_row_offset = 1
+        self.sensor_frames[title_text] = frame
+        self.frame_widget_rows[title_text] = 1 # Start widget rows after the title
         return frame
 
-    def _create_sensor_widgets(self, parent_frame, device_name, label_text, var, unit, color, row=0, sensor_key=None):
+    def _create_sensor_widgets(self, parent_frame, device_name, label_text, var, unit, color, sensor_key):
         """Helper to create sensor labels, values, and a mini-graph within a frame."""
-        actual_row = row + parent_frame.content_row_offset
+        row = self.frame_widget_rows[device_name]
+        self.frame_widget_rows[device_name] += 1
 
-        full_label_text = f"{device_name} {label_text}"
-
-        label = tk.Label(parent_frame, text=full_label_text, font=self.font_label, fg=self.fg_text_primary, bg=self.bg_frame)
-        label.grid(row=actual_row, column=0, sticky="w", padx=10, pady=3)
+        label = tk.Label(parent_frame, text=f"{label_text}:", font=self.font_label, fg=self.fg_text_primary, bg=self.bg_frame)
+        label.grid(row=row, column=0, sticky="w", padx=10, pady=3)
 
         value_label = tk.Label(parent_frame, textvariable=var, font=self.font_value, fg=color, bg=self.bg_frame)
-        value_label.grid(row=actual_row, column=1, sticky="e", padx=3, pady=3)
+        value_label.grid(row=row, column=1, sticky="e", padx=3, pady=3)
 
         unit_label = tk.Label(parent_frame, text=unit, font=self.font_value, fg=self.fg_text_secondary, bg=self.bg_frame)
-        unit_label.grid(row=actual_row, column=2, sticky="w", padx=3, pady=3)
+        unit_label.grid(row=row, column=2, sticky="w", padx=3, pady=3)
 
-        # Create a small canvas for the graph
         graph_canvas = tk.Canvas(parent_frame, width=80, height=25, bg=self.bg_frame, highlightthickness=0)
-        graph_canvas.grid(row=actual_row, column=3, sticky="e", padx=5, pady=3)
+        graph_canvas.grid(row=row, column=3, sticky="e", padx=5, pady=3)
 
-        if sensor_key:
-            self.graph_canvases[sensor_key] = graph_canvas # Store reference to the canvas
+        self.graph_canvases[sensor_key] = graph_canvas
 
     def on_frame_configure(self, event):
         """Update the scrollregion of the canvas when the inner frame's size changes."""
@@ -196,17 +176,15 @@ class SensorTrackerApp:
 
     def _on_mousewheel_linux(self, event):
         """Handle mouse wheel scrolling for Linux."""
-        if event.num == 4: # Scroll up
+        if event.num == 4:
             self.canvas.yview_scroll(-1, "units")
-        elif event.num == 5: # Scroll down
+        elif event.num == 5:
             self.canvas.yview_scroll(1, "units")
 
     def get_simulated_reading(self, sensor_type):
         """
-        Simulates a sensor reading. Randomly returns a value or None.
-        In a real application, this would read from actual hardware sensors.
+        Simulates a sensor reading based on type.
         """
-        # 80% chance to have a reading, 20% chance to have no reading
         if random.random() < 0.8:
             if sensor_type == "temperature":
                 return round(random.uniform(20.0, 30.0), 1)
@@ -216,14 +194,17 @@ class SensorTrackerApp:
                 return round(random.uniform(40.0, 75.0), 1)
             elif sensor_type == "cpu_usage":
                 return round(random.uniform(5.0, 95.0), 1)
-            elif sensor_type == "gpu_temp_1":
+            elif "gpu_temp" in sensor_type:
                 return round(random.uniform(45.0, 80.0), 1)
-            elif sensor_type == "gpu_usage_1":
+            elif "gpu_usage" in sensor_type:
                 return round(random.uniform(0.0, 100.0), 1)
-            elif sensor_type == "gpu_temp_2":
-                return round(random.uniform(40.0, 75.0), 1)
-            elif sensor_type == "gpu_usage_2":
-                return round(random.uniform(0.0, 90.0), 1)
+            # New sensor types
+            elif sensor_type == "network_usage":
+                return round(random.uniform(0.0, 100.0), 1)
+            elif sensor_type == "disk_temp":
+                return round(random.uniform(30.0, 60.0), 1)
+            elif sensor_type == "pci_temp":
+                return round(random.uniform(35.0, 70.0), 1)
         return None
 
     def _draw_graph(self, canvas, history_data, color):
@@ -255,54 +236,28 @@ class SensorTrackerApp:
         for i in range(len(points) - 1):
             canvas.create_line(points[i][0], points[i][1], points[i+1][0], points[i+1][1], fill=color, width=1.5)
 
-
     def update_sensors(self):
         """
-        Updates the sensor data and schedules the next update.
-        Dynamically shows/hides sensor frames based on readings.
-        Also updates current_readings_for_log for logging and draws graphs.
+        Updates the sensor data dynamically and schedules the next update.
         """
         current_time = time.strftime("%H:%M:%S")
 
-        def _process_sensor(sensor_key, tk_var, log_key, unit_str, graph_color):
-            current_val = self.get_simulated_reading(sensor_key)
+        for sensor_key, sensor_data in self.all_sensors.items():
+            current_val = self.get_simulated_reading(sensor_data["type"])
+
             if current_val is not None:
-                tk_var.set(current_val)
-                self.sensor_has_reading_ever[sensor_key] = True
-                self.current_readings_for_log[log_key] = f"{current_val}{unit_str}"
-                self.sensor_history[sensor_key].append(current_val)
-                if len(self.sensor_history[sensor_key]) > 20:
-                    self.sensor_history[sensor_key].pop(0)
-            elif not self.sensor_has_reading_ever[sensor_key]:
-                self.current_readings_for_log[log_key] = "N/A"
-
-            if self.sensor_has_reading_ever[sensor_key] and sensor_key in self.graph_canvases:
-                self._draw_graph(self.graph_canvases[sensor_key], self.sensor_history[sensor_key], graph_color)
-
-        _process_sensor("temperature", self.temperature, "Motherboard Temp", "°C", "#E57373")
-        _process_sensor("humidity", self.humidity, "Motherboard Humidity", "%", "#64B5F6")
-        _process_sensor("cpu_temp", self.cpu_temp, "CPU Die Temp", "°C", "#FFD54F")
-        _process_sensor("cpu_usage", self.cpu_usage, "CPU Core Usage", "%", "#FFB74D")
-        _process_sensor("gpu_temp_1", self.gpu_temp_1, "GPU 1 Temp", "°C", "#BA68C8")
-        _process_sensor("gpu_usage_1", self.gpu_usage_1, "GPU 1 Usage", "%", "#4DB6AC")
-        _process_sensor("gpu_temp_2", self.gpu_temp_2, "GPU 2 Temp", "°C", "#BA68C8")
-        _process_sensor("gpu_usage_2", self.gpu_usage_2, "GPU 2 Usage", "%", "#4DB6AC")
-
-        if self.sensor_has_reading_ever["temperature"] or self.sensor_has_reading_ever["humidity"]:
-            if not self.environmental_frame.winfo_ismapped():
-                self.environmental_frame.pack(pady=8, fill="x", padx=20)
-
-        if self.sensor_has_reading_ever["cpu_temp"] or self.sensor_has_reading_ever["cpu_usage"]:
-            if not self.cpu_frame.winfo_ismapped():
-                self.cpu_frame.pack(pady=8, fill="x", padx=20)
-
-        if self.sensor_has_reading_ever["gpu_temp_1"] or self.sensor_has_reading_ever["gpu_usage_1"]:
-            if not self.gpu_frame_1.winfo_ismapped():
-                self.gpu_frame_1.pack(pady=8, fill="x", padx=20)
-
-        if self.sensor_has_reading_ever["gpu_temp_2"] or self.sensor_has_reading_ever["gpu_usage_2"]:
-            if not self.gpu_frame_2.winfo_ismapped():
-                self.gpu_frame_2.pack(pady=8, fill="x", padx=20)
+                sensor_data["var"].set(current_val)
+                self.current_readings_for_log[sensor_key] = f"{current_val}{sensor_data['unit']}"
+                
+                sensor_data["history"].append(current_val)
+                if len(sensor_data["history"]) > 20:
+                    sensor_data["history"].pop(0)
+            else:
+                self.current_readings_for_log[sensor_key] = "N/A"
+            
+            # Only redraw the graph if the canvas has been created
+            if sensor_key in self.graph_canvases:
+                self._draw_graph(self.graph_canvases[sensor_key], sensor_data["history"], sensor_data["color"])
 
         self.last_updated_text.set(f"Last Updated: {current_time}")
         self.master.after(2000, self.update_sensors)
@@ -320,15 +275,15 @@ class SensorTrackerApp:
             with open(file_path, "a") as f:
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 f.write(f"--- Log Entry: {timestamp} ---\n")
-                for sensor_name, value in self.current_readings_for_log.items():
-                    f.write(f"{sensor_name}: {value}\n")
+                for sensor_key, value in self.current_readings_for_log.items():
+                    # Use a more descriptive label in the log file
+                    f.write(f"{self.all_sensors[sensor_key]['device']} {self.all_sensors[sensor_key]['label']}: {value}\n")
                 f.write("\n")
 
             messagebox.showinfo("Log Saved", f"Current readings appended to:\n{file_path}")
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save log: {e}")
-
 
 if __name__ == "__main__":
     root = tk.Tk()
