@@ -14,8 +14,10 @@ class SensorTrackerApp:
             master: The root Tkinter window.
         """
         self.master = master
-        master.title("System Monitor")
+        master.title("System Monitor - FrenzyPenguin Media")
         master.resizable(True, True)
+        # Set the initial geometry to be tall and narrow
+        master.geometry("245x800")
 
         # Set the application icon. The file 'icon.ico' must be in the same directory.
         try:
@@ -80,10 +82,9 @@ class SensorTrackerApp:
                                          relief="flat", bd=0, padx=10, pady=5)
         self.save_log_button.pack(pady=(10, 10))
 
-        # Changed to expand and fill for centering and responsiveness
-        # Added a larger left padding to compensate for the scrollbar's width
+        # Reverted: The canvas now fills the available space
         self.canvas = tk.Canvas(master, bg=self.bg_main, highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True, padx=(55, 0))
+        self.canvas.pack(fill="both", expand=True, padx=0)
         
         # Hiding the scrollbar as requested
         # self.scrollbar = tk.Scrollbar(master, orient="vertical", command=self.canvas.yview)
@@ -124,8 +125,9 @@ class SensorTrackerApp:
         for device_name in sorted_devices:
             # Create a frame for the device
             device_frame = self._create_sensor_group_frame(self.scrollable_frame, device_name)
-            # Changed to fill horizontally for uniform width, padding is now on the canvas
+            # Reverted: The frames now expand horizontally to fill the canvas width
             device_frame.pack(pady=8, fill="x")
+            self.sensor_frames[device_name] = device_frame
             
             # Populate the frame with widgets for each sensor in that device group
             for sensor_key, sensor_data in self.all_sensors.items():
@@ -134,22 +136,18 @@ class SensorTrackerApp:
 
     def _create_sensor_group_frame(self, parent, title_text):
         """Helper to create a consistent sensor group frame with a title and content that expands."""
-        if title_text in self.sensor_frames:
-            return self.sensor_frames[title_text]
-
         frame = tk.Frame(parent, bd=0, relief="flat", bg=self.bg_frame, highlightbackground=self.highlight_color, highlightthickness=1, padx=8, pady=3)
-        # Configure columns to allow expansion, but giving weight=0 to the graph column
-        # to constrain its width to the fixed size set below.
-        frame.columnconfigure(0, weight=0)  # Label column
-        frame.columnconfigure(1, weight=0)  # Value column
-        frame.columnconfigure(2, weight=0)  # Unit column
-        frame.columnconfigure(3, weight=0)  # Graph column (no expansion)
+        
+        # New: Configure columns with weights to ensure they are evenly distributed and aligned.
+        frame.columnconfigure(0, weight=1)  # Label column will expand
+        frame.columnconfigure(1, weight=1)  # Value column will expand
+        frame.columnconfigure(2, weight=0)  # Unit column has fixed width
+        frame.columnconfigure(3, weight=0)  # Graph column has fixed width
         
         # Reduced font size for group title
         group_title = tk.Label(frame, text=title_text, font=("Segoe UI", 10, "bold"), fg=self.fg_text_primary, bg=self.bg_frame)
         group_title.grid(row=0, column=0, columnspan=4, sticky="w", padx=3, pady=(3, 8))
 
-        self.sensor_frames[title_text] = frame
         self.frame_widget_rows[title_text] = 1 # Start widget rows after the title
         return frame
 
