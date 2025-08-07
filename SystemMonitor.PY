@@ -15,7 +15,6 @@ class SensorTrackerApp:
         """
         self.master = master
         master.title("System Monitor")
-        master.geometry("480x840")
         master.resizable(True, True)
 
         # Set the application icon. The file 'icon.ico' must be in the same directory.
@@ -289,3 +288,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = SensorTrackerApp(root)
     root.mainloop()
+
