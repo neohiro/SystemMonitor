@@ -1,6 +1,7 @@
 # SystemMonitor
 Multiplatform System Health Monitor
 
+- Network usage
 - Motherboard sensors
 - CPU sensors
 - GPU sensors (multiple GPU supported)
