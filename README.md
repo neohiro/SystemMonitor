@@ -1,6 +1,8 @@
 # SystemMonitor
-Multiplatform System Health Monitor
+Multiplatform System Health Monitor.
+
 Autodetects all sensors:
+
 - Network usage
 - Motherboard sensors
 - CPU sensors
