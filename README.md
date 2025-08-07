@@ -12,4 +12,5 @@ Autodetects all sensors:
 - ...
   
 
-  <img width="350" height="1079" alt="image" src="https://github.com/user-attachments/assets/63dd2592-eb88-43e4-8670-9c46786ab016" />
+  <img width="242" height="1037" alt="image" src="https://github.com/user-attachments/assets/1d8b4809-d70f-487f-8e1d-f34c9b1a3ee3" />
+
