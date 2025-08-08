@@ -19,15 +19,15 @@ class SensorTrackerApp:
         master.resizable(True, True)
         
         # --- ICON LOADING ---
-        # Checks for an 'icon.ico' file in the same directory and sets it as the window icon.
+        # The code will now check for an 'icon.ico' file and set it as the window icon.
+        # This is a robust way to handle the icon, gracefully ignoring the command if the file isn't found.
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
-        print(f"Checking for icon file at: {icon_path}")
         if os.path.exists(icon_path):
             try:
                 master.iconbitmap(icon_path)
             except tk.TclError:
                 # This handles cases where the platform doesn't support .ico,
-                # or if the file is invalid.
+                # like some Linux distributions, or if the file is invalid.
                 print("Warning: Could not load the icon.ico file.")
 
         # Set a modern background color for the main window
@@ -49,25 +49,45 @@ class SensorTrackerApp:
         self.font_status = ("Segoe UI", 8, "italic")
         self.font_button = ("Segoe UI", 10, "bold")
 
-        # --- Sensor Data Variables ---
-        self.all_sensors = {}
-        self.ordered_devices = []
-        
+        # --- Sensor Data Variables (all data is now in this one dictionary) ---
+        self.all_sensors = {
+            "environmental_temp": {"device": "Environmental", "label": "Temp", "unit": "°C", "color": "#E57373", "type": "temperature", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "environmental_humidity": {"device": "Environmental", "label": "Humidity", "unit": "%", "color": "#64B5F6", "type": "humidity", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "cpu_die_temp": {"device": "CPU", "label": "Die Temp", "unit": "°C", "color": "#FFD54F", "type": "cpu_temp", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "cpu_core_usage": {"device": "CPU", "label": "Core Usage", "unit": "%", "color": "#FFB74D", "type": "cpu_usage", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "fan_speed": {"device": "CPU", "label": "Fans", "unit": "RPM", "color": "#B39DDB", "type": "fan_speed", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "gpu1_temp": {"device": "GPU 1", "label": "Temp", "unit": "°C", "color": "#BA68C8", "type": "gpu_temp", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "gpu1_usage": {"device": "GPU 1", "label": "Usage", "unit": "%", "color": "#4DB6AC", "type": "gpu_usage", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "gpu2_temp": {"device": "GPU 2", "label": "Temp", "unit": "°C", "color": "#BA68C8", "type": "gpu_temp", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "gpu2_usage": {"device": "GPU 2", "label": "Usage", "unit": "%", "color": "#4DB6AC", "type": "gpu_usage", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "network_usage": {"device": "Network", "label": "Usage", "unit": "%", "color": "#29B6F6", "type": "network_usage", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "disk_temp": {"device": "Storage", "label": "Temp", "unit": "°C", "color": "#9E9E9E", "type": "disk_temp", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "pci_temp": {"device": "PCIe Bus", "label": "Temp", "unit": "°C", "color": "#D32F2F", "type": "pci_temp", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "ram_usage": {"device": "Memory", "label": "Usage", "unit": "%", "color": "#81D4FA", "type": "ram_usage", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "disk_io_read": {"device": "Storage", "label": "Read", "unit": "MB/s", "color": "#FBC02D", "type": "disk_io_read", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "disk_io_write": {"device": "Storage", "label": "Write", "unit": "MB/s", "color": "#F57F17", "type": "disk_io_write", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+            "network_ping": {"device": "Network", "label": "Ping", "unit": "ms", "color": "#F44336", "type": "network_ping", "var": tk.DoubleVar(), "history": [], "has_reading": False},
+        }
+
+        # Dictionaries to track sensor state and GUI elements
         self.current_readings_for_log = {}
         self.graph_canvases = {}
         self.sensor_frames = {}
         self.frame_widget_rows = {}
         self.last_updated_text = tk.StringVar()
         self.temp_unit = "C"
+
+        # This list stores the user's preferred order of device names
+        self.ordered_devices = []
         
+        # New variable to track the current number of columns for stable redrawing
         self.last_columns = 0
+        
         self.after_id = None
 
-        # --- Load settings and initialize GUI on startup ---
+        # --- Load settings on startup ---
         self._load_settings()
-        self._initialize_sensor_gui()
-        self.update_sensors()
-        
+
         # --- GUI Elements ---
         self.title_label = tk.Label(master, text="System Monitor", font=self.font_title, fg=self.fg_text_primary, bg=self.bg_main, pady=15)
         self.title_label.pack()
@@ -94,7 +114,31 @@ class SensorTrackerApp:
                                          activebackground=self.button_bg, activeforeground=self.button_fg,
                                          relief="flat", bd=0, padx=10, pady=5)
         self.save_log_button.pack(side="right")
+
+        # Create a frame to hold the canvas and scrollable content
+        main_content_frame = tk.Frame(master, bg=self.bg_main)
+        main_content_frame.pack(fill="both", expand=True)
+
+        self.canvas = tk.Canvas(main_content_frame, bg=self.bg_main, highlightthickness=0)
+        self.canvas.pack(side="left", fill="both", expand=True)
+
+        self.scrollable_frame = tk.Frame(self.canvas, bg=self.bg_main)
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+
+        # Bind the main window's configure event to handle resizing and the close event to save settings
+        self.master.bind("<Configure>", self._on_window_resize)
+        self.master.protocol("WM_DELETE_WINDOW", self._on_closing)
         
+        # Bind mousewheel events for scrolling
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind_all("<Button-4>", self._on_mousewheel_linux)
+        self.canvas.bind_all("<Button-5>", self._on_mousewheel_linux)
+        
+        self.scrollable_frame.bind("<Configure>", self._on_frame_configure)
+
+        self._initialize_sensor_gui()
+        self.update_sensors()
+
     def _get_config_path(self):
         """Returns the path to the configuration file."""
         config_dir = os.path.join(os.path.expanduser("~"), ".config", "system-monitor")
@@ -120,74 +164,37 @@ class SensorTrackerApp:
             with open(self._get_config_path(), "r") as f:
                 config_data = json.load(f)
                 
+                # Apply geometry
                 if "geometry" in config_data:
                     self.master.geometry(config_data["geometry"])
                 else:
                     self.master.geometry("275x800")
                 
+                # Apply temperature unit
                 if "temp_unit" in config_data:
                     self.temp_unit = config_data["temp_unit"]
                 
-                # Check if the ordered devices from the config are valid
+                # Apply device order
                 if "ordered_devices" in config_data and config_data["ordered_devices"]:
                     self.ordered_devices = config_data["ordered_devices"]
-        except (FileNotFound, json.JSONDecodeError):
+        except (FileNotFoundError, json.JSONDecodeError):
+            # If no config file exists or it's corrupt, use default settings
             self.master.geometry("275x800")
             print("No config file found or file is invalid. Using default settings.")
         
         # We need a default order if none was loaded
-        self._create_sensor_list()
         if not self.ordered_devices:
-            self._create_default_device_order()
+            devices = list(set(s['device'] for s in self.all_sensors.values()))
+            self.ordered_devices = []
+            if "Network" in devices:
+                self.ordered_devices.append("Network")
+                devices.remove("Network")
+            if "Environmental" in devices:
+                self.ordered_devices.append("Environmental")
+                devices.remove("Environmental")
+            devices.sort()
+            self.ordered_devices.extend(devices)
 
-    def _create_sensor_list(self):
-        """Generates the sensor data dictionary with hardcoded device names."""
-        self.all_sensors = {}
-        
-        # Core devices
-        self.all_sensors["environmental_temp"] = {"device": "Environmental", "label": "Temp", "unit": "°C", "color": "#E57373", "type": "temperature", "var": tk.DoubleVar(), "history": []}
-        self.all_sensors["environmental_humidity"] = {"device": "Environmental", "label": "Humidity", "unit": "%", "color": "#64B5F6", "type": "humidity", "var": tk.DoubleVar(), "history": []}
-        self.all_sensors["cpu_die_temp"] = {"device": "CPU", "label": "Die Temp", "unit": "°C", "color": "#FFD54F", "type": "cpu_temp", "var": tk.DoubleVar(), "history": []}
-        self.all_sensors["cpu_core_usage"] = {"device": "CPU", "label": "Core Usage", "unit": "%", "color": "#FFB74D", "type": "cpu_usage", "var": tk.DoubleVar(), "history": []}
-        self.all_sensors["fan_speed"] = {"device": "CPU", "label": "Fans", "unit": "RPM", "color": "#B39DDB", "type": "fan_speed", "var": tk.DoubleVar(), "history": []}
-        self.all_sensors["network_usage"] = {"device": "Network", "label": "Usage", "unit": "%", "color": "#29B6F6", "type": "network_usage", "var": tk.DoubleVar(), "history": []}
-        self.all_sensors["network_ping"] = {"device": "Network", "label": "Ping", "unit": "ms", "color": "#F44336", "type": "network_ping", "var": tk.DoubleVar(), "history": []}
-        self.all_sensors["ram_usage"] = {"device": "Memory", "label": "Usage", "unit": "%", "color": "#81D4FA", "type": "ram_usage", "var": tk.DoubleVar(), "history": []}
-        
-        # Dynamic devices
-        num_gpus = 3
-        num_storages = 3
-        num_pcie_buses = 2
-        
-        for i in range(num_gpus):
-            device_name = f"GPU {i + 1}"
-            self.all_sensors[f"gpu{i+1}_temp"] = {"device": device_name, "label": "Temp", "unit": "°C", "color": "#BA68C8", "type": "gpu_temp", "var": tk.DoubleVar(), "history": []}
-            self.all_sensors[f"gpu{i+1}_usage"] = {"device": device_name, "label": "Usage", "unit": "%", "color": "#4DB6AC", "type": "gpu_usage", "var": tk.DoubleVar(), "history": []}
-        
-        for i in range(num_storages):
-            device_name = f"Storage {i + 1}"
-            self.all_sensors[f"storage{i+1}_temp"] = {"device": device_name, "label": "Temp", "unit": "°C", "color": "#9E9E9E", "type": "disk_temp", "var": tk.DoubleVar(), "history": []}
-            self.all_sensors[f"storage{i+1}_io_read"] = {"device": device_name, "label": "Read", "unit": "MB/s", "color": "#FBC02D", "type": "disk_io_read", "var": tk.DoubleVar(), "history": []}
-            self.all_sensors[f"storage{i+1}_io_write"] = {"device": device_name, "label": "Write", "unit": "MB/s", "color": "#F57F17", "type": "disk_io_write", "var": tk.DoubleVar(), "history": []}
-
-        for i in range(num_pcie_buses):
-            device_name = f"PCIe Bus {i + 1}"
-            self.all_sensors[f"pci{i+1}_temp"] = {"device": device_name, "label": "Temp", "unit": "°C", "color": "#D32F2F", "type": "pci_temp", "var": tk.DoubleVar(), "history": []}
-
-    def _create_default_device_order(self):
-        """Generates a default device order for a new installation."""
-        devices = sorted(list(set(s['device'] for s in self.all_sensors.values())))
-        # Prioritize core system components
-        pre_ordered = []
-        for dev in ["CPU", "Memory", "Network", "Environmental"]:
-            if dev in devices:
-                pre_ordered.append(dev)
-                devices.remove(dev)
-        
-        # Sort the remaining dynamic devices to keep their order consistent
-        devices.sort()
-        self.ordered_devices = pre_ordered + devices
-        
     def _on_closing(self):
         """Saves settings and then closes the window."""
         self._save_settings()
@@ -195,24 +202,7 @@ class SensorTrackerApp:
 
     def _initialize_sensor_gui(self):
         """Initializes all sensor group frames and widgets at startup."""
-        main_content_frame = tk.Frame(self.master, bg=self.bg_main)
-        main_content_frame.pack(fill="both", expand=True)
-
-        self.canvas = tk.Canvas(main_content_frame, bg=self.bg_main, highlightthickness=0)
-        self.canvas.pack(side="left", fill="both", expand=True)
-
-        self.scrollable_frame = tk.Frame(self.canvas, bg=self.bg_main)
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-
-        # Bind events
-        self.master.bind("<Configure>", self._on_window_resize)
-        self.master.protocol("WM_DELETE_WINDOW", self._on_closing)
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        self.canvas.bind_all("<Button-4>", self._on_mousewheel_linux)
-        self.canvas.bind_all("<Button-5>", self._on_mousewheel_linux)
-        self.scrollable_frame.bind("<Configure>", self._on_frame_configure)
-        
-        # Create frames and widgets based on the ordered list
+        # Create frames and widgets based on the ordered list (loaded or default)
         for device_name in self.ordered_devices:
             device_frame = self._create_sensor_group_frame(self.scrollable_frame, device_name)
             self.sensor_frames[device_name] = device_frame
@@ -221,6 +211,7 @@ class SensorTrackerApp:
                 if sensor_data['device'] == device_name:
                     self._create_sensor_widgets(device_frame, device_name, sensor_data["label"], sensor_data["var"], sensor_data["unit"], sensor_data["color"], sensor_key)
         
+        # Trigger initial layout using the new grid logic
         self._repack_frames()
 
     def _on_window_resize(self, event):
@@ -238,7 +229,7 @@ class SensorTrackerApp:
         min_frame_width = 240
         new_columns = max(1, int(width // min_frame_width))
 
-        # Only repack if the column count changes or if forced
+        # This is the fix: allow a forced repack to happen even if the column count is the same.
         if new_columns == self.last_columns and not force:
             return
 
@@ -368,15 +359,15 @@ class SensorTrackerApp:
                 return round(random.uniform(0.0, 100.0), 1)
             elif sensor_type == "network_usage":
                 return round(random.uniform(0.0, 100.0), 1)
-            elif "disk_temp" in sensor_type:
+            elif sensor_type == "disk_temp":
                 return round(random.uniform(30.0, 60.0), 1)
-            elif "pci_temp" in sensor_type:
+            elif sensor_type == "pci_temp":
                 return round(random.uniform(35.0, 70.0), 1)
             elif sensor_type == "ram_usage":
                 return round(random.uniform(20.0, 95.0), 1)
-            elif "disk_io_read" in sensor_type:
+            elif sensor_type == "disk_io_read":
                 return round(random.uniform(0.0, 500.0), 1)
-            elif "disk_io_write" in sensor_type:
+            elif sensor_type == "disk_io_write":
                 return round(random.uniform(0.0, 300.0), 1)
             elif sensor_type == "network_ping":
                 return random.randint(10, 150)
@@ -399,8 +390,8 @@ class SensorTrackerApp:
         if width <= 1 or height <= 1:
             return
 
-        min_val = min(history_data) if history_data else 0
-        max_val = max(history_data) if history_data else 1
+        min_val = min(history_data)
+        max_val = max(history_data)
         range_val = max_val - min_val if (max_val - min_val) != 0 else 1
 
         points = []
@@ -432,10 +423,17 @@ class SensorTrackerApp:
                     converted_val = (current_val - 32) * 5/9
                 sensor_data["var"].set(round(converted_val, 1))
 
-                device_name = sensor_data['device']
-                if device_name in self.sensor_frames and hasattr(self.sensor_frames[device_name], 'unit_labels') and sensor_key in self.sensor_frames[device_name].unit_labels:
-                    self.sensor_frames[device_name].unit_labels[sensor_key].config(text=new_unit_text)
-                    self._draw_graph(self.graph_canvases[sensor_key], sensor_data["history"], sensor_data["color"])
+                for frame in self.sensor_frames.values():
+                    if hasattr(frame, 'unit_labels') and sensor_key in frame.unit_labels:
+                        frame.unit_labels[sensor_key].config(text=new_unit_text)
+
+        for sensor_key, sensor_data in self.all_sensors.items():
+            if sensor_data['type'] in ["temperature", "cpu_temp", "gpu_temp", "disk_temp", "pci_temp"]:
+                if 'unit_labels' not in self.sensor_frames[sensor_data['device']].__dict__:
+                    self.sensor_frames[sensor_data['device']].unit_labels = {}
+                unit_label = self.sensor_frames[sensor_data['device']].unit_labels[sensor_key]
+                unit_label.config(text=new_unit_text)
+                self._draw_graph(self.graph_canvases[sensor_key], sensor_data["history"], sensor_data["color"])
         
         self._save_settings()
 
