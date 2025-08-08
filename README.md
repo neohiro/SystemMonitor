@@ -10,7 +10,8 @@ Autodetects all sensors:
 - PCIe sensors
 - Storage sensors
 - ...
-  
+
+Allows for switching to Fahrenheit from Celsius.
 
 <img width="243" height="1047" alt="image" src="https://github.com/user-attachments/assets/4d661ba8-d8d5-4ce4-ac52-4b08b44ca11e" />
 
