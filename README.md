@@ -5,10 +5,10 @@ Autodetects all sensors:
 
 - Network usage
 - Motherboard sensors
-- CPU sensors
+- CPU sensors (fan speed included)
 - GPU sensors (multiple GPU supported)
 - PCIe sensors
-- Storage sensors
+- Storage sensors (I/O included)
 - ...
 
 Allows for switching to Fahrenheit from Celsius. Save to Log will save the active readings into your Documents.
