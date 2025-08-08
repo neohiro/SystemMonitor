@@ -1,5 +1,5 @@
 # SystemMonitor
-Multiplatform System Health Monitor.
+Multiplatform System Health Monitor for PC.
 
 Autodetects all sensors:
 
