@@ -1,6 +1,8 @@
 # SystemMonitor
 Multiplatform System Health Monitor for PC.
 
+WARNING: Currently, the data is spoofed. We would like to use ping3, psutil and other libraries to get real sensor readings.
+
 Autodetects all sensors:
 
 - Network usage (+ latency)
