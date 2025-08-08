@@ -13,5 +13,5 @@ Autodetects all sensors:
 
 Allows for switching to Fahrenheit from Celsius.
 
-<img width="243" height="1047" alt="image" src="https://github.com/user-attachments/assets/4d661ba8-d8d5-4ce4-ac52-4b08b44ca11e" />
+<img width="245" height="1049" alt="image" src="https://github.com/user-attachments/assets/59a09cdc-10cf-4cda-8403-4d4971186554" />
 
