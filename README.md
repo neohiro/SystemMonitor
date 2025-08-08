@@ -1,6 +1,5 @@
 # SystemMonitor
 Multiplatform System Health Monitor.
-Uses Celsius.
 
 Autodetects all sensors:
 
@@ -13,5 +12,5 @@ Autodetects all sensors:
 - ...
   
 
-  <img width="242" height="1037" alt="image" src="https://github.com/user-attachments/assets/1d8b4809-d70f-487f-8e1d-f34c9b1a3ee3" />
+<img width="243" height="1047" alt="image" src="https://github.com/user-attachments/assets/4d661ba8-d8d5-4ce4-ac52-4b08b44ca11e" />
 
