@@ -18,6 +18,18 @@ class SensorTrackerApp:
         master.title("System Monitor - FrenzyPenguin Media")
         master.resizable(True, True)
         
+        # --- ICON LOADING ---
+        # The code will now check for an 'icon.ico' file and set it as the window icon.
+        # This is a robust way to handle the icon, gracefully ignoring the command if the file isn't found.
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
+        if os.path.exists(icon_path):
+            try:
+                master.iconbitmap(icon_path)
+            except tk.TclError:
+                # This handles cases where the platform doesn't support .ico,
+                # like some Linux distributions, or if the file is invalid.
+                print("Warning: Could not load the icon.ico file.")
+
         # Set a modern background color for the main window
         self.bg_main = "#263238"
         self.bg_frame = "#37474F"
