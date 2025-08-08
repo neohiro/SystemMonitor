@@ -17,7 +17,7 @@ class SensorTrackerApp:
         master.title("System Monitor - FrenzyPenguin Media")
         master.resizable(True, True)
         # Set the initial geometry to be tall and narrow
-        master.geometry("245x800")
+        master.geometry("244x800")
 
         # Set the application icon. The file 'icon.ico' must be in the same directory.
         try:
@@ -66,6 +66,7 @@ class SensorTrackerApp:
         self.sensor_frames = {}
         self.frame_widget_rows = {}
         self.last_updated_text = tk.StringVar()
+        self.temp_unit = "C" # New state variable for temperature unit
 
         # --- GUI Elements ---
         self.title_label = tk.Label(master, text="System Monitor", font=self.font_title, fg=self.fg_text_primary, bg=self.bg_main, pady=15)
@@ -74,13 +75,27 @@ class SensorTrackerApp:
         self.status_label = tk.Label(master, textvariable=self.last_updated_text, font=self.font_status, fg=self.fg_text_secondary, bg=self.bg_main)
         self.status_label.pack(pady=(5, 10))
 
-        self.save_log_button = tk.Button(master, text="Save to Log",
+        # Container frame for the buttons
+        button_frame = tk.Frame(master, bg=self.bg_main)
+        button_frame.pack(pady=(10, 10))
+
+        # Temperature unit toggle button
+        self.unit_button = tk.Button(button_frame, text="Switch to °F",
+                                     command=self._toggle_temp_unit,
+                                     font=self.font_button,
+                                     bg=self.highlight_color, fg=self.button_fg,
+                                     activebackground=self.highlight_color, activeforeground=self.button_fg,
+                                     relief="flat", bd=0, padx=10, pady=5)
+        self.unit_button.pack(side="left", padx=(0, 10))
+        
+        self.save_log_button = tk.Button(button_frame, text="Save to Log",
                                          command=self.save_to_log,
                                          font=self.font_button,
                                          bg=self.button_bg, fg=self.button_fg,
                                          activebackground=self.button_bg, activeforeground=self.button_fg,
                                          relief="flat", bd=0, padx=10, pady=5)
-        self.save_log_button.pack(pady=(10, 10))
+        self.save_log_button.pack(side="right")
+
 
         # Reverted: The canvas now fills the available space
         self.canvas = tk.Canvas(master, bg=self.bg_main, highlightthickness=0)
@@ -166,8 +181,13 @@ class SensorTrackerApp:
         value_label = tk.Label(parent_frame, textvariable=var, font=self.font_value, fg=color, bg=self.bg_frame)
         value_label.grid(row=row, column=1, sticky="e", padx=2, pady=3)
 
+        # Use a dictionary to store the unit label widget so we can update it
+        if 'unit_labels' not in self.sensor_frames[device_name].__dict__:
+            self.sensor_frames[device_name].unit_labels = {}
+
         unit_label = tk.Label(parent_frame, text=unit, font=self.font_value, fg=self.fg_text_secondary, bg=self.bg_frame)
         unit_label.grid(row=row, column=2, sticky="w", padx=2, pady=3)
+        self.sensor_frames[device_name].unit_labels[sensor_key] = unit_label
 
         # Set a fixed, smaller width for the graph canvas
         graph_canvas = tk.Canvas(parent_frame, width=50, height=25, bg=self.bg_frame, highlightthickness=0)
@@ -246,6 +266,44 @@ class SensorTrackerApp:
         for i in range(len(points) - 1):
             canvas.create_line(points[i][0], points[i][1], points[i+1][0], points[i+1][1], fill=color, width=1.5)
 
+    def _toggle_temp_unit(self):
+        """Toggles the temperature unit between Celsius and Fahrenheit."""
+        if self.temp_unit == "C":
+            self.temp_unit = "F"
+            self.unit_button.config(text="Switch to °C")
+            new_unit_text = "°F"
+        else:
+            self.temp_unit = "C"
+            self.unit_button.config(text="Switch to °F")
+            new_unit_text = "°C"
+
+        # Iterate through all sensor readings to convert them
+        for sensor_key, sensor_data in self.all_sensors.items():
+            if sensor_data['type'] in ["temperature", "cpu_temp", "gpu_temp", "disk_temp", "pci_temp"]:
+                current_val = sensor_data["var"].get()
+                if self.temp_unit == "F":
+                    converted_val = (current_val * 9/5) + 32
+                else:
+                    converted_val = (current_val - 32) * 5/9
+                sensor_data["var"].set(round(converted_val, 1))
+
+                # Also update the unit label text
+                for frame in self.sensor_frames.values():
+                    if hasattr(frame, 'unit_labels') and sensor_key in frame.unit_labels:
+                        frame.unit_labels[sensor_key].config(text=new_unit_text)
+
+        # Clear and update the history with converted values
+        for sensor_key, sensor_data in self.all_sensors.items():
+            if sensor_data['type'] in ["temperature", "cpu_temp", "gpu_temp", "disk_temp", "pci_temp"]:
+                # The history is now in the new unit, so we don't need to reconvert.
+                # Just need to make sure the label is right.
+                if 'unit_labels' not in self.sensor_frames[sensor_data['device']].__dict__:
+                    self.sensor_frames[sensor_data['device']].unit_labels = {}
+                unit_label = self.sensor_frames[sensor_data['device']].unit_labels[sensor_key]
+                unit_label.config(text=new_unit_text)
+                self._draw_graph(self.graph_canvases[sensor_key], sensor_data["history"], sensor_data["color"])
+
+
     def update_sensors(self):
         """
         Updates the sensor data dynamically and schedules the next update.
@@ -253,21 +311,38 @@ class SensorTrackerApp:
         current_time = time.strftime("%H:%M:%S")
 
         for sensor_key, sensor_data in self.all_sensors.items():
-            current_val = self.get_simulated_reading(sensor_data["type"])
-
-            if current_val is not None:
-                sensor_data["var"].set(current_val)
-                self.current_readings_for_log[sensor_key] = f"{current_val}{sensor_data['unit']}"
+            current_val_c = self.get_simulated_reading(sensor_data["type"])
+            
+            if current_val_c is not None:
+                # Store the value in Celsius for internal use and conversions
                 
-                sensor_data["history"].append(current_val)
+                # If the current unit is Fahrenheit, convert the simulated Celsius reading
+                if self.temp_unit == "F" and sensor_data['type'] in ["temperature", "cpu_temp", "gpu_temp", "disk_temp", "pci_temp"]:
+                    converted_val = (current_val_c * 9/5) + 32
+                    sensor_data["var"].set(round(converted_val, 1))
+                    
+                    # Update history with the converted value
+                    sensor_data["history"].append(round(converted_val, 1))
+                    
+                else:
+                    sensor_data["var"].set(current_val_c)
+                    sensor_data["history"].append(current_val_c)
+
+                # Trim history if it's too long
                 if len(sensor_data["history"]) > 20:
                     sensor_data["history"].pop(0)
+
+                # Store the reading for the log file, using the correct unit
+                current_value = sensor_data["var"].get()
+                unit = "°F" if self.temp_unit == "F" and sensor_data['type'] in ["temperature", "cpu_temp", "gpu_temp", "disk_temp", "pci_temp"] else sensor_data['unit']
+                self.current_readings_for_log[sensor_key] = f"{current_value}{unit}"
             else:
                 self.current_readings_for_log[sensor_key] = "N/A"
             
             # Only redraw the graph if the canvas has been created
             if sensor_key in self.graph_canvases:
                 self._draw_graph(self.graph_canvases[sensor_key], sensor_data["history"], sensor_data["color"])
+
 
         self.last_updated_text.set(f"Last Updated: {current_time}")
         self.master.after(2000, self.update_sensors)
