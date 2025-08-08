@@ -15,3 +15,4 @@ Allows for switching to Fahrenheit from Celsius. Save to Log will save the activ
 
 <img width="245" height="1049" alt="image" src="https://github.com/user-attachments/assets/59a09cdc-10cf-4cda-8403-4d4971186554" />
 
+Intent to include all sensors possible, feel free to contribute!
