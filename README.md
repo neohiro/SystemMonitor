@@ -11,8 +11,8 @@ Autodetects all sensors:
 - Storage sensors (I/O included)
 - ...
 
-Allows for switching to Fahrenheit from Celsius. Boasts a theme selector. Save to Log will save the active readings into your Documents. The dynamic tiles are now also able to be reordered.
-A config.json file is included to save the window sizing, the selected theme and favorite order of the sensor groups.
+You can switch the order of sensor groups. Allows for switching to Fahrenheit from Celsius. Boasts a theme selector. Save to Log will save the active readings into your Documents. The dynamic tiles are now also able to be reordered.
+A config.json file is included to save the window sizing, the selected theme and favorite order.
 
   <img width="556" height="754" alt="image" src="https://github.com/user-attachments/assets/01f561b8-bfb9-43b5-91b3-7e61198855c9" />
 
