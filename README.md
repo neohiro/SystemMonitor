@@ -3,7 +3,7 @@ Multiplatform System Health Monitor for PC.
 
 Autodetects all sensors:
 
-- Network usage
+- Network usage (+ latency)
 - Motherboard sensors
 - CPU sensors (fan speed included)
 - GPU sensors (Up to 2 GPUs supported)
