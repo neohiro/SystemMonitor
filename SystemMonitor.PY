@@ -291,7 +291,6 @@ class SensorTrackerApp:
 
     def _initialize_sensor_gui(self):
         for device_name in self.ordered_devices:
-            # Check if device_name is a valid key
             if device_name in self.sensor_frames:
                 continue
 
@@ -398,7 +397,7 @@ class SensorTrackerApp:
             graph_canvas.bind('<Configure>', lambda event, key=sensor_key: self._on_graph_resize(event, key))
             self.graph_canvases[sensor_key] = graph_canvas
         
-        if self.all_sensors[sensor_key]["type"] != "static":
+        if self.all_sensors[sensor_key]["type"] not in ["static", "uptime"]:
             var.set("N/A".rjust(5))
 
     def _on_frame_configure(self, event):
