@@ -86,8 +86,17 @@ class SensorTrackerApp:
         
         self.all_sensors = {
             "cpu_core_usage": {"device": "CPU", "label": "Core Usage", "unit": "%", "type": "cpu_usage", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
+            "cpu_cores": {"device": "CPU", "label": "Cores", "unit": "", "type": "static", "var": tk.StringVar(), "value": psutil.cpu_count(logical=True), "history": [0]},
+            "cpu_freq": {"device": "CPU", "label": "Frequency", "unit": "GHz", "type": "cpu_freq", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
+            "cpu_uptime": {"device": "CPU", "label": "Uptime", "unit": "", "type": "uptime", "var": tk.StringVar(), "history": [0]},
             "ram_usage": {"device": "Memory", "label": "Usage", "unit": "%", "type": "ram_usage", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
-            "network_usage": {"device": "Network", "label": "Usage", "unit": "%", "type": "network_usage", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
+            "ram_total": {"device": "Memory", "label": "Total", "unit": "GB", "type": "static", "var": tk.StringVar(), "value": round(psutil.virtual_memory().total / (1024**3), 2), "history": [0]},
+            "ram_used": {"device": "Memory", "label": "Used", "unit": "GB", "type": "ram_used", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
+            "disk_usage": {"device": "Disk", "label": "Usage", "unit": "%", "type": "disk_usage", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
+            "disk_total": {"device": "Disk", "label": "Total", "unit": "GB", "type": "static", "var": tk.StringVar(), "value": round(psutil.disk_usage('/').total / (1024**3), 2), "history": [0]},
+            "disk_free": {"device": "Disk", "label": "Free", "unit": "GB", "type": "disk_free", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
+            "net_down": {"device": "Network", "label": "Download", "unit": "MB/s", "type": "net_down", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
+            "net_up": {"device": "Network", "label": "Upload", "unit": "MB/s", "type": "net_up", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
             "ping_latency": {"device": "Network", "label": "Latency", "unit": "ms", "type": "ping_latency", "var": tk.StringVar(), "history": [], "last_valid_reading": None}
         }
         
@@ -113,8 +122,8 @@ class SensorTrackerApp:
         self.after_id = None
         
         self.net_io_last_time = time.time()
-        self.net_io_last_sent = 0
-        self.net_io_last_recv = 0
+        self.net_io_last_sent = psutil.net_io_counters().bytes_sent
+        self.net_io_last_recv = psutil.net_io_counters().bytes_recv
 
         self.ordered_devices = []
         
@@ -253,25 +262,28 @@ class SensorTrackerApp:
             sensor_data["color"] = self.accent_color
             if sensor_key in self.graph_canvases:
                 self._draw_graph(self.graph_canvases[sensor_key], sensor_data["history"], self.accent_color)
-                
-            device_frame = self.sensor_frames[sensor_data['device']]
-            children = device_frame.winfo_children()
-            for row in range(1, self.frame_widget_rows[sensor_data['device']]):
-                label = device_frame.grid_slaves(row=row, column=1)[0]
-                value_label = device_frame.grid_slaves(row=row, column=2)[0]
-                unit_label = device_frame.grid_slaves(row=row, column=3)[0]
-
-                if label.cget("text").replace(":", "") == sensor_data["label"]:
-                    label.config(bg=self.bg_frame, fg=self.fg_text_primary)
-                    
-                    if sensor_key == "cpu_temperature":
-                        pass
-                    else:
-                        value_label.config(bg=self.bg_frame, fg=self.accent_color)
+            
+            if sensor_data['device'] in self.sensor_frames:
+                device_frame = self.sensor_frames[sensor_data['device']]
+                for row in range(1, self.frame_widget_rows.get(sensor_data['device'], 1)):
+                    try:
+                        label = device_frame.grid_slaves(row=row, column=1)[0]
+                        value_label = device_frame.grid_slaves(row=row, column=2)[0]
+                        unit_label = device_frame.grid_slaves(row=row, column=3)[0]
+    
+                        if label.cget("text").replace(":", "") == sensor_data["label"]:
+                            label.config(bg=self.bg_frame, fg=self.fg_text_primary)
+                            
+                            if sensor_key == "cpu_temperature":
+                                pass
+                            else:
+                                value_label.config(bg=self.bg_frame, fg=self.accent_color)
+                                
+                            unit_label.config(bg=self.bg_frame, fg=self.fg_text_secondary)
+                            break
+                    except IndexError:
+                        continue
                         
-                    unit_label.config(bg=self.bg_frame, fg=self.fg_text_secondary)
-                    break
-                    
     def _change_theme(self):
         self.current_theme_index = (self.current_theme_index + 1) % len(self.themes)
         self._apply_theme()
@@ -279,6 +291,10 @@ class SensorTrackerApp:
 
     def _initialize_sensor_gui(self):
         for device_name in self.ordered_devices:
+            # Check if device_name is a valid key
+            if device_name in self.sensor_frames:
+                continue
+
             device_frame = self._create_sensor_group_frame(self.scrollable_frame, device_name)
             self.sensor_frames[device_name] = device_frame
             
@@ -308,10 +324,11 @@ class SensorTrackerApp:
             frame.grid_forget()
 
         for i, device_name in enumerate(self.ordered_devices):
-            frame = self.sensor_frames[device_name]
-            row = i // new_columns
-            column = i % new_columns
-            frame.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
+            if device_name in self.sensor_frames:
+                frame = self.sensor_frames[device_name]
+                row = i // new_columns
+                column = i % new_columns
+                frame.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
 
         for i in range(new_columns):
             self.scrollable_frame.grid_columnconfigure(i, weight=1)
@@ -347,6 +364,9 @@ class SensorTrackerApp:
         return frame
 
     def _move_frame(self, device_name, direction):
+        if device_name not in self.ordered_devices:
+            return
+            
         current_index = self.ordered_devices.index(device_name)
         new_index = current_index + direction
         
@@ -356,8 +376,11 @@ class SensorTrackerApp:
             self._save_settings()
 
     def _create_sensor_widgets(self, parent_frame, device_name, label_text, var, unit, sensor_key):
-        row = self.frame_widget_rows[device_name]
-        self.frame_widget_rows[device_name] += 1
+        row = self.frame_widget_rows.get(device_name, 1)
+        self.frame_widget_rows[device_name] = row + 1
+        
+        if self.all_sensors[sensor_key]["type"] == "static":
+            var.set(str(self.all_sensors[sensor_key]["value"]).rjust(5))
 
         label = tk.Label(parent_frame, text=f"{label_text}:", font=self.font_label)
         label.grid(row=row, column=1, sticky="w", padx=2, pady=3)
@@ -369,13 +392,14 @@ class SensorTrackerApp:
         unit_label = tk.Label(parent_frame, text=unit, font=self.font_unit)
         unit_label.grid(row=row, column=3, sticky="w", padx=2, pady=3)
 
-        graph_canvas = tk.Canvas(parent_frame, width=50, height=25, highlightthickness=0)
-        graph_canvas.grid(row=row, column=4, sticky="e", padx=2, pady=3)
-        graph_canvas.bind('<Configure>', lambda event, key=sensor_key: self._on_graph_resize(event, key))
-
-        self.graph_canvases[sensor_key] = graph_canvas
+        if self.all_sensors[sensor_key]["type"] not in ["static", "uptime"]:
+            graph_canvas = tk.Canvas(parent_frame, width=50, height=25, highlightthickness=0)
+            graph_canvas.grid(row=row, column=4, sticky="e", padx=2, pady=3)
+            graph_canvas.bind('<Configure>', lambda event, key=sensor_key: self._on_graph_resize(event, key))
+            self.graph_canvases[sensor_key] = graph_canvas
         
-        var.set("N/A".rjust(5))
+        if self.all_sensors[sensor_key]["type"] != "static":
+            var.set("N/A".rjust(5))
 
     def _on_frame_configure(self, event):
         self.canvas.config(scrollregion=self.canvas.bbox("all"))
@@ -424,9 +448,21 @@ class SensorTrackerApp:
         readings = {}
         
         readings["cpu_core_usage"] = psutil.cpu_percent(interval=None)
-
+        
+        cpu_freq = psutil.cpu_freq()
+        if cpu_freq:
+            readings["cpu_freq"] = cpu_freq.current / 1000
+        
+        uptime_seconds = time.time() - psutil.boot_time()
+        readings["cpu_uptime"] = str(datetime.timedelta(seconds=int(uptime_seconds)))
+        
         ram_info = psutil.virtual_memory()
         readings["ram_usage"] = ram_info.percent
+        readings["ram_used"] = ram_info.used / (1024**3)
+        
+        disk_info = psutil.disk_usage('/')
+        readings["disk_usage"] = disk_info.percent
+        readings["disk_free"] = disk_info.free / (1024**3)
         
         net_io = psutil.net_io_counters()
         current_time = time.time()
@@ -437,9 +473,8 @@ class SensorTrackerApp:
                 bytes_sent_per_sec = (net_io.bytes_sent - self.net_io_last_sent) / time_diff
                 bytes_recv_per_sec = (net_io.bytes_recv - self.net_io_last_recv) / time_diff
                 
-                max_speed_bytes_per_sec = 125_000_000
-                total_usage = bytes_sent_per_sec + bytes_recv_per_sec
-                readings["network_usage"] = (total_usage / max_speed_bytes_per_sec) * 100
+                readings["net_up"] = bytes_sent_per_sec / (1024 * 1024)
+                readings["net_down"] = bytes_recv_per_sec / (1024 * 1024)
         
         self.net_io_last_time = current_time
         self.net_io_last_sent = net_io.bytes_sent
@@ -498,6 +533,10 @@ class SensorTrackerApp:
             
             current_val = real_readings.get(sensor_key)
             
+            if sensor_data["type"] == "static":
+                self.current_readings_for_log[sensor_key] = {"value": sensor_data["var"].get().strip(), "unit": sensor_data["unit"]}
+                continue
+            
             if current_val is not None:
                 sensor_data["last_valid_reading"] = current_val
                 
@@ -508,32 +547,41 @@ class SensorTrackerApp:
                         color = "#FFA726"
                     else:
                         color = "#EF5350"
-                    sensor_data["value_label_widget"].config(fg=color)
+                    if "value_label_widget" in sensor_data:
+                        sensor_data["value_label_widget"].config(fg=color)
                 else:
-                    sensor_data["value_label_widget"].config(fg=self.accent_color)
-
+                    if "value_label_widget" in sensor_data:
+                        sensor_data["value_label_widget"].config(fg=self.accent_color)
+                
                 if isinstance(current_val, float):
                     if sensor_key == "ping_latency":
                         formatted_value = f"{current_val:5.2f}"
+                    elif sensor_key in ["net_up", "net_down", "cpu_freq", "ram_used", "disk_free"]:
+                        formatted_value = f"{current_val:5.2f}"
                     else:
                         formatted_value = f"{current_val:5.1f}"
+                elif sensor_data["type"] == "uptime":
+                    formatted_value = current_val
                 else:
                     formatted_value = f"{current_val:5d}"
                 
                 sensor_data["var"].set(formatted_value)
-                sensor_data["history"].append(round(current_val, 1))
-
-                if len(sensor_data["history"]) > 20:
-                    sensor_data["history"].pop(0)
+                
+                if sensor_data["type"] not in ["static", "uptime"]:
+                    sensor_data["history"].append(round(current_val, 1))
+                    if len(sensor_data["history"]) > 20:
+                        sensor_data["history"].pop(0)
 
                 self.current_readings_for_log[sensor_key] = {"value": formatted_value, "unit": sensor_data["unit"]}
             else:
                 formatted_value = "N/A".rjust(5)
                 sensor_data["var"].set(formatted_value)
-                sensor_data["history"].append(0)
-                if len(sensor_data["history"]) > 20:
-                    sensor_data["history"].pop(0)
-                    
+                
+                if sensor_data["type"] not in ["static", "uptime"]:
+                    sensor_data["history"].append(0)
+                    if len(sensor_data["history"]) > 20:
+                        sensor_data["history"].pop(0)
+                        
             if sensor_key in self.graph_canvases:
                 graph_color = self.accent_color
                 if sensor_key == "cpu_temperature":
@@ -568,11 +616,12 @@ class SensorTrackerApp:
                 for device_name in self.ordered_devices:
                     f.write(f"\n[{device_name}]\n")
                     for sensor_key in device_sensors[device_name]:
-                        sensor_data = self.all_sensors[sensor_key]
-                        
-                        value = sensor_data["var"].get()
+                        if sensor_key in self.all_sensors:
+                            sensor_data = self.all_sensors[sensor_key]
                             
-                        f.write(f"  {sensor_data['label']}: {value.strip()}{sensor_data['unit']}\n")
+                            value = sensor_data["var"].get()
+                                
+                            f.write(f"  {sensor_data['label']}: {value.strip()}{sensor_data['unit']}\n")
                 f.write("\n")
             
             self._show_message("Log Saved", f"Current readings appended to:\n{file_path}")
