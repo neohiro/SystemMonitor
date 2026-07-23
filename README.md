@@ -22,3 +22,8 @@ Intended version but impossible due to own limitations with psutil and knowledge
 
   <img width="556" height="754" alt="image" src="https://github.com/user-attachments/assets/01f561b8-bfb9-43b5-91b3-7e61198855c9" />
 
+
+## 📦 Installation
+
+You can download the compiled standalone release for your operating system (Windows, macOS, or Linux) directly from the **[Releases](../../releases)** tab. No Python installation is required! Just download the .zip for your OS, extract, and run.
+
