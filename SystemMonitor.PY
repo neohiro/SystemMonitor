@@ -3,10 +3,147 @@ from tkinter import messagebox
 import time
 import datetime
 import os
+import sys
 import json
+import subprocess
 import psutil
 import ping3
 import glob
+
+
+class WidgetPersistence:
+    """Keeps the window visible across Show Desktop (Win+D), Win+M and
+    virtual-desktop switches on Windows, Linux and macOS.
+
+    Strategy per platform:
+    - Windows: WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE styling plus a poll that
+      restores the window whenever Explorer minimizes it (Show Desktop) or a
+      virtual-desktop switch hides it.
+    - Linux/X11: dock window type (sticky/above/no-taskbar where the WM
+      honours it), optional wmctrl hints, plus polling fallback.
+    - macOS: always-on-top plus polling fallback (joining all Spaces needs
+      PyObjC; best-effort only).
+    """
+
+    POLL_MS = 800
+
+    def __init__(self, root):
+        self.root = root
+        self.enabled = False
+        self._job = None
+        self._hwnd = None
+
+    def enable(self):
+        if self.enabled:
+            return True
+        self.enabled = True
+        try:
+            self.root.attributes("-topmost", True)
+        except Exception:
+            pass
+        self._apply_platform_style()
+        self._poll()
+        return True
+
+    def disable(self):
+        if not self.enabled:
+            return False
+        self.enabled = False
+        if self._job:
+            try:
+                self.root.after_cancel(self._job)
+            except Exception:
+                pass
+            self._job = None
+        self._restore_platform_style()
+        try:
+            self.root.attributes("-topmost", False)
+        except Exception:
+            pass
+        return False
+
+    def toggle(self):
+        return self.disable() if self.enabled else self.enable()
+
+    # ---- platform styling --------------------------------------------
+    def _apply_platform_style(self):
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                user32 = ctypes.windll.user32
+                hwnd = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+                GWL_EXSTYLE = -20
+                WS_EX_TOOLWINDOW = 0x00000080   # no taskbar button, skips Alt-Tab
+                WS_EX_NOACTIVATE = 0x08000000   # never steals focus when clicked
+                style = user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+                user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE,
+                                         style | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
+                self._hwnd = hwnd
+            except Exception:
+                self._hwnd = None
+        elif sys.platform.startswith("linux"):
+            try:
+                # Dock type: sticky + above + skip-taskbar on mutter/KDE/XFCE.
+                self.root.attributes("-type", "dock")
+            except Exception:
+                pass
+            try:
+                import shutil
+                if shutil.which("wmctrl"):
+                    subprocess.Popen(
+                        ["wmctrl", "-i", "-r", hex(self.root.winfo_id()),
+                         "-b", "add,sticky,above,skip_taskbar"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+        else:  # macOS: topmost already applied; all-Spaces needs PyObjC
+            pass
+
+    def _restore_platform_style(self):
+        if sys.platform == "win32" and self._hwnd:
+            try:
+                import ctypes
+                user32 = ctypes.windll.user32
+                GWL_EXSTYLE = -20
+                WS_EX_TOOLWINDOW = 0x00000080
+                WS_EX_NOACTIVATE = 0x08000000
+                style = user32.GetWindowLongPtrW(self._hwnd, GWL_EXSTYLE)
+                user32.SetWindowLongPtrW(self._hwnd, GWL_EXSTYLE,
+                                         style & ~(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE))
+            except Exception:
+                pass
+        self._hwnd = None
+
+    # ---- persistence loop ---------------------------------------------
+    def _poll(self):
+        if not self.enabled:
+            return
+        try:
+            if sys.platform == "win32" and self._hwnd:
+                import ctypes
+                user32 = ctypes.windll.user32
+                if user32.IsIconic(self._hwnd) or not user32.IsWindowVisible(self._hwnd):
+                    SW_SHOWNOACTIVATE = 4
+                    HWND_TOPMOST = -1
+                    SWP_NOSIZE = 0x1; SWP_NOMOVE = 0x2
+                    SWP_NOACTIVATE = 0x10; SWP_SHOWWINDOW = 0x40
+                    user32.ShowWindow(self._hwnd, SW_SHOWNOACTIVATE)
+                    user32.SetWindowPos(self._hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW)
+            state = ""
+            try:
+                state = self.root.state()
+            except Exception:
+                pass
+            if state in ("iconic", "icon", "withdrawn"):
+                self.root.deiconify()
+                self.root.attributes("-topmost", True)
+                self.root.lift()
+        except Exception:
+            pass
+        self._job = self.root.after(self.POLL_MS, self._poll)
+
+
 
 class SensorTrackerApp:
     def __init__(self, master):
@@ -93,7 +230,7 @@ class SensorTrackerApp:
             "ram_total": {"device": "Memory", "label": "Total", "unit": "GB", "type": "static", "var": tk.StringVar(), "value": round(psutil.virtual_memory().total / (1024**3), 2), "history": [0]},
             "ram_used": {"device": "Memory", "label": "Used", "unit": "GB", "type": "ram_used", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
             "disk_usage": {"device": "Disk", "label": "Usage", "unit": "%", "type": "disk_usage", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
-            "disk_total": {"device": "Disk", "label": "Total", "unit": "GB", "type": "static", "var": tk.StringVar(), "value": round(psutil.disk_usage('/').total / (1024**3), 2), "history": [0]},
+            "disk_total": {"device": "Disk", "label": "Total", "unit": "GB", "type": "static", "var": tk.StringVar(), "value": round(psutil.disk_usage(os.environ.get("SystemDrive", "C:") + "\\" if os.name == "nt" else "/").total / (1024**3), 2), "history": [0]},
             "disk_free": {"device": "Disk", "label": "Free", "unit": "GB", "type": "disk_free", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
             "net_down": {"device": "Network", "label": "Download", "unit": "MB/s", "type": "net_down", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
             "net_up": {"device": "Network", "label": "Upload", "unit": "MB/s", "type": "net_up", "var": tk.StringVar(), "history": [], "last_valid_reading": None},
@@ -105,11 +242,36 @@ class SensorTrackerApp:
             can_get_temp = True
         elif os.name == 'posix' and (glob.glob('/sys/class/thermal/thermal_zone*/temp') or glob.glob('/sys/class/hwmon/hwmon*/temp*_input')):
             can_get_temp = True
+        elif os.name == 'nt' and self._windows_cpu_temp() is not None:
+            # Windows: WMI MSAcpi_ThermalZoneTemperature (many boards expose it)
+            can_get_temp = True
 
         if can_get_temp:
             self.all_sensors["cpu_temperature"] = {"device": "CPU", "label": "Temperature", "unit": "°C", "type": "cpu_temp", "var": tk.StringVar(), "history": [], "last_valid_reading": None}
         
+
+        # --- Optional sensors: battery ------------------------------------
+        try:
+            has_battery = hasattr(psutil, 'sensors_battery') and psutil.sensors_battery() is not None
+        except Exception:
+            has_battery = False
+        if has_battery:
+            self.all_sensors["battery"] = {"device": "Power", "label": "Battery", "unit": "%", "type": "battery", "var": tk.StringVar(), "history": [], "last_valid_reading": None}
+
+        # --- Optional sensors: NVIDIA GPU (via nvidia-smi when present) ----
+        self._nvidia_smi = self._detect_nvidia_smi()
+        if self._nvidia_smi:
+            self.all_sensors["gpu_usage"] = {"device": "GPU", "label": "Usage", "unit": "%", "type": "gpu_usage", "var": tk.StringVar(), "history": [], "last_valid_reading": None}
+            self.all_sensors["gpu_temperature"] = {"device": "GPU", "label": "Temperature", "unit": "\u00b0C", "type": "gpu_temp", "var": tk.StringVar(), "history": [], "last_valid_reading": None}
         self.ping_target = "8.8.8.8"
+
+        # Desktop-widget mode (always visible across Win+D / virtual desktops)
+        self.widget_mode_enabled = False
+        self._widget_var = tk.BooleanVar(value=False)
+        self.widget = WidgetPersistence(master)
+
+        # System drive for disk metrics ('/' is unreliable on Windows)
+        self.disk_root = (os.environ.get("SystemDrive", "C:") + "\\") if os.name == "nt" else "/"
 
         self.current_readings_for_log = {}
         self.graph_canvases = {}
@@ -131,6 +293,7 @@ class SensorTrackerApp:
 
         self.title_label = tk.Label(master, text="System Monitor", font=self.font_title, pady=15)
         self.title_label.pack()
+        self.title_label.bind("<Button-3>", self._show_title_menu)
 
         self.status_label = tk.Label(master, textvariable=self.last_updated_text, font=self.font_status)
         self.status_label.pack(pady=(5, 10))
@@ -180,6 +343,30 @@ class SensorTrackerApp:
         self._apply_theme()
         self.update_sensors()
 
+        # Restore desktop-widget mode if it was enabled last session
+        if self.widget_mode_enabled:
+            self.widget.enable()
+        self._widget_var.set(self.widget_mode_enabled)
+
+    def _show_title_menu(self, event):
+        """Right-click menu on the title: toggle always-visible widget mode."""
+        menu = tk.Menu(self.master, tearoff=0)
+        menu.add_checkbutton(label="Widget mode (always visible)",
+                             variable=self._widget_var,
+                             command=self._toggle_widget_mode)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _toggle_widget_mode(self):
+        """Enable/disable persistence across Show Desktop and virtual desktops."""
+        self.widget_mode_enabled = self.widget.toggle()
+        self._widget_var.set(self.widget_mode_enabled)
+        self._save_settings()
+        state = "enabled" if self.widget_mode_enabled else "disabled"
+        self.last_updated_text.set(f"Widget mode {state}")
+
     def _get_config_path(self):
         config_dir = os.path.join(os.path.expanduser("~"), ".config", "system-monitor")
         os.makedirs(config_dir, exist_ok=True)
@@ -189,7 +376,8 @@ class SensorTrackerApp:
         config_data = {
             "geometry": self.master.geometry(),
             "ordered_devices": self.ordered_devices,
-            "current_theme_index": self.current_theme_index
+            "current_theme_index": self.current_theme_index,
+            "widget_mode": bool(getattr(self, "widget_mode_enabled", False))
         }
         try:
             with open(self._get_config_path(), "w") as f:
@@ -213,6 +401,9 @@ class SensorTrackerApp:
                 
                 if "current_theme_index" in config_data:
                     self.current_theme_index = config_data["current_theme_index"]
+
+                if config_data.get("widget_mode"):
+                    self.widget_mode_enabled = True
         except (FileNotFoundError, json.JSONDecodeError):
             self.master.geometry("275x800")
         
@@ -459,7 +650,7 @@ class SensorTrackerApp:
         readings["ram_usage"] = ram_info.percent
         readings["ram_used"] = ram_info.used / (1024**3)
         
-        disk_info = psutil.disk_usage('/')
+        disk_info = psutil.disk_usage(getattr(self, "disk_root", "/" if os.name != "nt" else "C:\\"))
         readings["disk_usage"] = disk_info.percent
         readings["disk_free"] = disk_info.free / (1024**3)
         
@@ -517,10 +708,83 @@ class SensorTrackerApp:
                 except (IOError, ValueError):
                     continue
 
+        # Windows fallback: WMI thermal zone (best-effort; needs board support)
+        if not temp_found and os.name == 'nt':
+            wmi_temp = self._windows_cpu_temp()
+            if wmi_temp is not None:
+                readings["cpu_temperature"] = wmi_temp
+                temp_found = True
+
+        # GPU metrics via nvidia-smi when available (usage % + temperature)
+        if getattr(self, "_nvidia_smi", None):
+            try:
+                out = subprocess.run(
+                    [self._nvidia_smi, "--query-gpu=utilization.gpu,temperature.gpu",
+                     "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, timeout=2)
+                if out.returncode == 0 and out.stdout.strip():
+                    parts = out.stdout.strip().splitlines()[0].split(",")
+                    if len(parts) >= 2:
+                        readings["gpu_usage"] = float(parts[0])
+                        readings["gpu_temperature"] = float(parts[1])
+            except Exception:
+                pass
+
+        # Battery percentage (laptops)
+        try:
+            bat = psutil.sensors_battery() if hasattr(psutil, 'sensors_battery') else None
+            if bat is not None:
+                readings["battery"] = round(float(bat.percent), 1)
+        except Exception:
+            pass
+
         if not temp_found and "cpu_temperature" in self.all_sensors:
             readings["cpu_temperature"] = None
 
         return readings
+
+    def _detect_nvidia_smi(self):
+        """Return the nvidia-smi executable path if a query succeeds, else None."""
+        try:
+            import shutil
+            smi = shutil.which("nvidia-smi")
+            if not smi:
+                return None
+            out = subprocess.run(
+                [smi, "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=3)
+            if out.returncode == 0 and out.stdout.strip():
+                return smi
+        except Exception:
+            pass
+        return None
+
+    def _windows_cpu_temp(self):
+        """Best-effort CPU temperature on Windows via WMI MSAcpi_ThermalZoneTemperature.
+
+        Returns degrees Celsius or None. The optional `wmi` package
+        (pip install wmi) plus admin rights / board support are required.
+        """
+        if getattr(self, "_no_wmi_temp", False):
+            return None
+        try:
+            import wmi  # optional dependency
+        except ImportError:
+            self._no_wmi_temp = True
+            return None
+        try:
+            w = getattr(self, "_wmi_conn", None)
+            if w is None:
+                w = wmi.WMI(namespace="root\\wmi")
+                self._wmi_conn = w
+            zones = w.MSAcpi_ThermalZoneTemperature()
+            temps = [float(z.CurrentTemperature) / 10.0 - 273.15
+                     for z in zones if z.CurrentTemperature]
+            if temps:
+                return sum(temps) / len(temps)
+        except Exception:
+            self._no_wmi_temp = True   # don't retry-spam every cycle
+        return None
 
     def update_sensors(self):
         current_time = time.strftime("%H:%M:%S")
@@ -583,7 +847,7 @@ class SensorTrackerApp:
                         
             if sensor_key in self.graph_canvases:
                 graph_color = self.accent_color
-                if sensor_key == "cpu_temperature":
+                if sensor_key in ("cpu_temperature", "gpu_temperature"):
                     if current_val is not None:
                         if current_val < 50:
                             graph_color = "#66BB6A"

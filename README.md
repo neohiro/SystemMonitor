@@ -2,15 +2,30 @@
 [![Python 3.x](https://img.shields.io/badge/python-3.x-blue.svg)](https://www.python.org/downloads/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgray.svg)](https://github.com/)
 [![Build Status](https://github.com/neohiro/SystemMonitor/actions/workflows/release.yml/badge.svg)](https://github.com/neohiro/SystemMonitor/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Multiplatform System Health Monitor for PC.
 
 Autodetects sensors:
 
 - Network usage (+ latency)
-- CPU usage
+- CPU usage & frequency
 - RAM usage
-- ...
+- CPU temperature (Linux via psutil/sysfs; Windows via WMI thermal zone where the board supports it — optional `pip install wmi`)
+- GPU usage & temperature (NVIDIA via nvidia-smi, auto-detected)
+- Battery percentage (laptops)
+
+Tiles for optional sensors appear automatically only when the underlying hardware/dependency is available.
+
+## 📌 Widget mode (always visible)
+
+Right-click the **System Monitor** title and enable **"Widget mode (always visible)"** to keep the monitor pinned to your desktop:
+
+- **Windows** – survives *Show Desktop* (Win+D), Win+M and virtual-desktop switches; styled as a tool window so it never steals focus or shows in the taskbar.
+- **Linux/X11** – dock-type window: sticky across workspaces, always-on-top, no taskbar entry (wmctrl hints where supported).
+- **macOS** – stays above other windows.
+
+The setting is remembered in `~/.config/system-monitor/config.json` and restored on the next launch.
 
 You can switch the order of sensor groups. Boasts a theme selector. Save Log will save the active readings into your Documents. The dynamic tiles are now also able to be reorganised upon window resizing.
 A config.json file is included to save the window sizing, the selected theme and favorite order.
