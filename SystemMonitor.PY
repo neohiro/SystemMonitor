@@ -12,33 +12,36 @@ import glob
 
 
 class WidgetPersistence:
-    """Keeps the window visible across Show Desktop (Win+D), Win+M and
-    virtual-desktop switches on Windows, Linux and macOS.
+    """Desktop-level widget placement that persists everywhere.
 
-    Strategy per platform:
-    - Windows: WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE styling plus a poll that
-      restores the window whenever Explorer minimizes it (Show Desktop) or a
-      virtual-desktop switch hides it.
-    - Linux/X11: dock window type (sticky/above/no-taskbar where the WM
-      honours it), optional wmctrl hints, plus polling fallback.
-    - macOS: always-on-top plus polling fallback (joining all Spaces needs
-      PyObjC; best-effort only).
+    The monitor lives ON THE DESKTOP LAYER - never on top of other windows:
+
+    - Windows: embedded into the shell's WorkerW layer (the same trick
+      Rainmeter uses), i.e. between the wallpaper and everything else.
+      Survives Show Desktop (Win+D), Win+M and virtual-desktop switches;
+      Explorer restarts are detected and re-embedded automatically.
+    - Linux/X11: _NET_WM_WINDOW_TYPE_DESKTOP where supported, otherwise
+      sticky + below + skip-taskbar via wmctrl.
+    - macOS: normal (non-floating) window kept off the taskbar queue as far
+      as Tk allows; joining all Spaces needs PyObjC (best-effort only).
     """
 
-    POLL_MS = 800
+    POLL_MS = 1500
 
     def __init__(self, root):
         self.root = root
         self.enabled = False
         self._job = None
         self._hwnd = None
+        self._workerw = None
 
+    # ---- public API ----------------------------------------------------
     def enable(self):
         if self.enabled:
             return True
         self.enabled = True
         try:
-            self.root.attributes("-topmost", True)
+            self.root.attributes("-topmost", False)
         except Exception:
             pass
         self._apply_platform_style()
@@ -56,16 +59,42 @@ class WidgetPersistence:
                 pass
             self._job = None
         self._restore_platform_style()
-        try:
-            self.root.attributes("-topmost", False)
-        except Exception:
-            pass
         return False
 
     def toggle(self):
         return self.disable() if self.enabled else self.enable()
 
-    # ---- platform styling --------------------------------------------
+    # ---- Windows desktop embedding --------------------------------------
+    @staticmethod
+    def _find_desktop_workerw():
+        """Return the WorkerW handle that hosts the wallpaper (behind icons)."""
+        import ctypes
+        user32 = ctypes.windll.user32
+        progman = user32.FindWindowW("Progman", None)
+        if not progman:
+            return None
+        # Ask the shell to spawn the wallpaper WorkerW layer (0x052C)
+        user32.SendMessageTimeoutW(progman, 0x052C, 0, None, 0, 1000, None)
+
+        def enum_cb(hwnd, lparam):
+            nonlocal defview_host
+            # A WorkerW hosting SHELLDLL_DefView marks the icon layer;
+            # the *next* WorkerW sibling is the wallpaper host we want.
+            if user32.FindWindowExW(hwnd, None, "SHELLDLL_DefView", None):
+                defview_host = hwnd
+            return True
+
+        CMPFUNC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        defview_host = None
+        cb = CMPFUNC(enum_cb)
+        user32.EnumWindows(cb, 0)
+        if defview_host:
+            workerw = user32.FindWindowExW(None, defview_host, "WorkerW", None)
+            if workerw:
+                return workerw
+        return progman  # fallback: parent to Progman itself
+
+    # ---- platform styling ------------------------------------------------
     def _apply_platform_style(self):
         if sys.platform == "win32":
             try:
@@ -73,18 +102,26 @@ class WidgetPersistence:
                 user32 = ctypes.windll.user32
                 hwnd = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
                 GWL_EXSTYLE = -20
-                WS_EX_TOOLWINDOW = 0x00000080   # no taskbar button, skips Alt-Tab
-                WS_EX_NOACTIVATE = 0x08000000   # never steals focus when clicked
+                WS_EX_TOOLWINDOW = 0x00000080
+                WS_EX_NOACTIVATE = 0x08000000
                 style = user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
                 user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE,
                                          style | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
                 self._hwnd = hwnd
+                workerw = self._find_desktop_workerw()
+                if workerw:
+                    x, y = self.root.winfo_rootx(), self.root.winfo_rooty()
+                    w = max(self.root.winfo_width(), 1)
+                    h = max(self.root.winfo_height(), 1)
+                    if user32.SetParent(hwnd, workerw):
+                        self._workerw = workerw
+                        user32.MoveWindow(hwnd, x, y, w, h, True)
             except Exception:
-                self._hwnd = None
+                pass
         elif sys.platform.startswith("linux"):
             try:
-                # Dock type: sticky + above + skip-taskbar on mutter/KDE/XFCE.
-                self.root.attributes("-type", "dock")
+                # Desktop type = behind windows, part of the workspace itself.
+                self.root.attributes("-type", "desktop")
             except Exception:
                 pass
             try:
@@ -92,29 +129,33 @@ class WidgetPersistence:
                 if shutil.which("wmctrl"):
                     subprocess.Popen(
                         ["wmctrl", "-i", "-r", hex(self.root.winfo_id()),
-                         "-b", "add,sticky,above,skip_taskbar"],
+                         "-b", "add,sticky,below,skip_taskbar"],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
-        else:  # macOS: topmost already applied; all-Spaces needs PyObjC
+        else:  # macOS: plain window; desktop-layer needs PyObjC (optional)
             pass
 
     def _restore_platform_style(self):
-        if sys.platform == "win32" and self._hwnd:
+        if sys.platform == "win32":
             try:
                 import ctypes
                 user32 = ctypes.windll.user32
-                GWL_EXSTYLE = -20
-                WS_EX_TOOLWINDOW = 0x00000080
-                WS_EX_NOACTIVATE = 0x08000000
-                style = user32.GetWindowLongPtrW(self._hwnd, GWL_EXSTYLE)
-                user32.SetWindowLongPtrW(self._hwnd, GWL_EXSTYLE,
-                                         style & ~(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE))
+                if self._hwnd:
+                    if self._workerw:
+                        user32.SetParent(self._hwnd, None)
+                    GWL_EXSTYLE = -20
+                    WS_EX_TOOLWINDOW = 0x00000080
+                    WS_EX_NOACTIVATE = 0x08000000
+                    style = user32.GetWindowLongPtrW(self._hwnd, GWL_EXSTYLE)
+                    user32.SetWindowLongPtrW(self._hwnd, GWL_EXSTYLE,
+                                             style & ~(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE))
             except Exception:
                 pass
-        self._hwnd = None
+            self._hwnd = None
+            self._workerw = None
 
-    # ---- persistence loop ---------------------------------------------
+    # ---- health poll -------------------------------------------------------
     def _poll(self):
         if not self.enabled:
             return
@@ -122,13 +163,20 @@ class WidgetPersistence:
             if sys.platform == "win32" and self._hwnd:
                 import ctypes
                 user32 = ctypes.windll.user32
+                expected = self._workerw
+                # Re-embed after an Explorer restart lost our parent
+                if expected and user32.GetParent(self._hwnd) != expected:
+                    workerw = self._find_desktop_workerw()
+                    if workerw:
+                        user32.SetParent(self._hwnd, workerw)
+                        self._workerw = workerw
                 if user32.IsIconic(self._hwnd) or not user32.IsWindowVisible(self._hwnd):
                     SW_SHOWNOACTIVATE = 4
-                    HWND_TOPMOST = -1
                     SWP_NOSIZE = 0x1; SWP_NOMOVE = 0x2
                     SWP_NOACTIVATE = 0x10; SWP_SHOWWINDOW = 0x40
+                    HWND_BOTTOM = 1
                     user32.ShowWindow(self._hwnd, SW_SHOWNOACTIVATE)
-                    user32.SetWindowPos(self._hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                    user32.SetWindowPos(self._hwnd, HWND_BOTTOM, 0, 0, 0, 0,
                                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW)
             state = ""
             try:
@@ -137,12 +185,76 @@ class WidgetPersistence:
                 pass
             if state in ("iconic", "icon", "withdrawn"):
                 self.root.deiconify()
-                self.root.attributes("-topmost", True)
-                self.root.lift()
+                self.root.lower()
         except Exception:
             pass
         self._job = self.root.after(self.POLL_MS, self._poll)
 
+
+class RoundedShell(tk.Canvas):
+    """Futuristic rounded card: paints the shell; widgets live in .inner."""
+
+    PAD_X = 14
+    PAD_Y = 10
+
+    def __init__(self, master, radius=16, **kw):
+        try:
+            outer = master.cget("bg")
+        except Exception:
+            outer = "#0B0E12"
+        super().__init__(master, highlightthickness=0, bd=0, bg=outer, **kw)
+        self.outer_bg = outer
+        self.radius = radius
+        self.card_bg = "#10161D"
+        self.outline = "#24313D"
+        self.glow = "#18222C"
+        self.inner = tk.Frame(self, bg=self.card_bg, bd=0, relief="flat",
+                              highlightthickness=0)
+        self.create_window(self.PAD_X, self.PAD_Y, anchor="nw", window=self.inner)
+        self.inner.bind("<Configure>", lambda e: self._fit())
+        self.bind("<Configure>", lambda e: self._paint())
+        self._fit()
+        self._paint()
+
+    @staticmethod
+    def _round_pts(x1, y1, x2, y2, r):
+        r = max(2, min(r, int((x2 - x1) // 2), int((y2 - y1) // 2)))
+        return [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
+                x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
+                x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+
+    def _fit(self):
+        w = self.inner.winfo_reqwidth() + 2 * self.PAD_X
+        h = self.inner.winfo_reqheight() + 2 * self.PAD_Y
+        if w > 4 and h > 4:
+            self.configure(width=w, height=h)
+
+    def set_palette(self, outer=None, card=None, outline=None, glow=None):
+        if outer:
+            self.outer_bg = outer
+            self.configure(bg=outer)
+        if card:
+            self.card_bg = card
+            self.inner.configure(bg=card)
+        if outline:
+            self.outline = outline
+        if glow:
+            self.glow = glow
+        self._paint()
+
+    def _paint(self):
+        self.delete("card")
+        w = self.winfo_width()
+        h = self.winfo_height()
+        if w <= 8 or h <= 8:
+            return
+        glow_pts = self._round_pts(1, 1, w - 1, h - 1, self.radius + 3)
+        self.create_polygon(glow_pts, fill="", outline=self.glow, width=5,
+                            smooth=True, tags=("card",))
+        pts = self._round_pts(3, 3, w - 3, h - 3, self.radius)
+        self.create_polygon(pts, fill=self.card_bg, outline=self.outline,
+                            width=2, smooth=True, tags=("card",))
+        self.tag_lower("card")
 
 
 class SensorTrackerApp:
@@ -263,6 +375,22 @@ class SensorTrackerApp:
         if self._nvidia_smi:
             self.all_sensors["gpu_usage"] = {"device": "GPU", "label": "Usage", "unit": "%", "type": "gpu_usage", "var": tk.StringVar(), "history": [], "last_valid_reading": None}
             self.all_sensors["gpu_temperature"] = {"device": "GPU", "label": "Temperature", "unit": "\u00b0C", "type": "gpu_temp", "var": tk.StringVar(), "history": [], "last_valid_reading": None}
+
+        # --- Optional sensors: disk activity (read/write MB/s) ---------------
+        try:
+            self._disk_io_last = psutil.disk_io_counters()
+            self._disk_io_time = time.time()
+        except Exception:
+            self._disk_io_last = None
+            self._disk_io_time = None
+        if self._disk_io_last:
+            self.all_sensors["disk_read"] = {"device": "Disk", "label": "Read", "unit": "MB/s", "type": "disk_read", "var": tk.StringVar(), "history": [], "last_valid_reading": None}
+            self.all_sensors["disk_write"] = {"device": "Disk", "label": "Write", "unit": "MB/s", "type": "disk_write", "var": tk.StringVar(), "history": [], "last_valid_reading": None}
+
+        # --- Optional sensors: fans (hardware monitor or OS) ------------------
+        self._ohm_namespace = None   # detected lazily in _query_hardware_monitor
+        self._no_hwmon = False       # sticky failure flags (avoid retry spam)
+        self._register_fan_sensors()
         self.ping_target = "8.8.8.8"
 
         # Desktop-widget mode (always visible across Win+D / virtual desktops)
@@ -276,6 +404,7 @@ class SensorTrackerApp:
         self.current_readings_for_log = {}
         self.graph_canvases = {}
         self.sensor_frames = {}
+        self.sensor_shells = {}
         self.frame_widget_rows = {}
         self.last_updated_text = tk.StringVar()
         
@@ -414,6 +543,17 @@ class SensorTrackerApp:
         self._save_settings()
         self.master.destroy()
 
+    @staticmethod
+    def _mix_hex(hex_color, other, t):
+        """Blend two hex colours; t = share of `other`."""
+        def ch(c):
+            c = c.lstrip("#")
+            return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+        r1, g1, b1 = ch(hex_color)
+        r2, g2, b2 = ch(other)
+        mix = lambda a, b: max(0, min(255, int(a + (b - a) * t)))
+        return "#{:02X}{:02X}{:02X}".format(mix(r1, r2), mix(g1, g2), mix(b1, b2))
+
     def _apply_theme(self):
         current_theme = self.themes[self.current_theme_index]
         self.bg_main = current_theme["bg_main"]
@@ -422,7 +562,9 @@ class SensorTrackerApp:
         self.highlight_color = current_theme["highlight_color"]
         self.accent_color = current_theme["accent_color"]
         
-        self.bg_frame = self.bg_main
+        # Card palette: deep glass panel slightly lifted from the background
+        self.bg_frame = self._mix_hex(self.bg_main, "#FFFFFF", 0.06)
+        card_glow = self._mix_hex(self.accent_color, self.bg_main, 0.82)
 
         self.master.configure(bg=self.bg_main)
         self.title_label.config(bg=self.bg_main, fg=self.fg_text_primary)
@@ -441,6 +583,10 @@ class SensorTrackerApp:
         self.theme_button.config(bg=self.highlight_color, fg=self.button_fg, activebackground=self.highlight_color, activeforeground=self.button_fg)
         self.save_log_button.config(bg=self.accent_color, fg=self.button_fg, activebackground=self.accent_color, activeforeground=self.button_fg)
         
+        for shell in getattr(self, "sensor_shells", {}).values():
+            shell.set_palette(outer=self.bg_main, card=self.bg_frame,
+                              outline=self.highlight_color, glow=card_glow)
+
         for device_frame in self.sensor_frames.values():
             device_frame.config(bg=self.bg_frame, highlightbackground=self.highlight_color)
             for widget in device_frame.winfo_children():
@@ -514,11 +660,11 @@ class SensorTrackerApp:
             frame.grid_forget()
 
         for i, device_name in enumerate(self.ordered_devices):
-            if device_name in self.sensor_frames:
-                frame = self.sensor_frames[device_name]
+            if device_name in self.sensor_shells:
+                shell = self.sensor_shells[device_name]
                 row = i // new_columns
                 column = i % new_columns
-                frame.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
+                shell.grid(row=row, column=column, padx=10, pady=10, sticky="nsew")
 
         for i in range(new_columns):
             self.scrollable_frame.grid_columnconfigure(i, weight=1)
@@ -529,7 +675,9 @@ class SensorTrackerApp:
         self.last_columns = new_columns
 
     def _create_sensor_group_frame(self, parent, title_text):
-        frame = tk.Frame(parent, bd=0, relief="flat", highlightthickness=1, padx=8, pady=3)
+        shell = RoundedShell(parent)
+        self.sensor_shells[title_text] = shell
+        frame = shell.inner
         
         header_frame = tk.Frame(frame)
         header_frame.grid(row=0, column=0, columnspan=5, sticky="ew", padx=3, pady=(3, 8))
@@ -708,6 +856,26 @@ class SensorTrackerApp:
                 except (IOError, ValueError):
                     continue
 
+        # Manufacturer sensors first: LibreHardwareMonitor / OpenHardwareMonitor
+        hw_temps = []
+        hw_fan = None
+        hw_rows = self._query_hardware_monitor()
+        if hw_rows:
+            cpu_load_rows = [r for r in hw_rows if r["type"] == "Load"
+                             and "cpu" in r["name"].lower()]
+            for r in hw_rows:
+                if r["type"] == "Temperature":
+                    name = r["name"].lower()
+                    parent = str(r.get("parent", "")).lower()
+                    if ("cpu" in name or "core" in name or "package" in name
+                            or "tdie" in name or "tctl" in name or "cpu" in parent):
+                        hw_temps.append(r["value"])
+                elif r["type"] == "Fan" and hw_fan is None:
+                    hw_fan = r["value"]
+            if not temp_found and hw_temps:
+                readings["cpu_temperature"] = sum(hw_temps) / len(hw_temps)
+                temp_found = True
+
         # Windows fallback: WMI thermal zone (best-effort; needs board support)
         if not temp_found and os.name == 'nt':
             wmi_temp = self._windows_cpu_temp()
@@ -738,10 +906,74 @@ class SensorTrackerApp:
         except Exception:
             pass
 
+        # GPU temperature fallback from hardware monitor when no nvidia-smi
+        if "gpu_temperature" in self.all_sensors and "gpu_temperature" not in readings:
+            gpu_rows = [r for r in hw_rows if r["type"] == "Temperature"
+                        and "gpu" in r["name"].lower()]
+            if gpu_rows:
+                readings["gpu_temperature"] = gpu_rows[0]["value"]
+
+        # Fan speeds: hardware monitor preferred, then psutil (Linux)
+        fan_keys = [k for k in self.all_sensors if k.startswith("fan_")]
+        if fan_keys:
+            rpm = hw_fan
+            if rpm is None and hasattr(psutil, 'sensors_fans') and os.name == 'posix':
+                try:
+                    for chip, entries in (psutil.sensors_fans() or {}).items():
+                        if entries:
+                            rpm = entries[0].current
+                            break
+                except Exception:
+                    pass
+            if rpm is not None:
+                readings[fan_keys[0]] = float(rpm)
+
+        # Disk I/O rates (MB/s deltas)
+        if self._disk_io_last:
+            try:
+                dio = psutil.disk_io_counters()
+                now = time.time()
+                dt = now - self._disk_io_time
+                if dio and dt > 0:
+                    readings["disk_read"] = (dio.read_bytes - self._disk_io_last.read_bytes) / dt / (1024 * 1024)
+                    readings["disk_write"] = (dio.write_bytes - self._disk_io_last.write_bytes) / dt / (1024 * 1024)
+                self._disk_io_last = dio
+                self._disk_io_time = now
+            except Exception:
+                pass
+
+        # Last resort: infer an approximate CPU temperature from load so the
+        # tile stays useful even without any sensor backend (labelled "~").
         if not temp_found and "cpu_temperature" in self.all_sensors:
-            readings["cpu_temperature"] = None
+            est = self._estimate_cpu_temp(readings.get("cpu_core_usage", 0))
+            readings["cpu_temperature"] = est
+            temp_found = True
+            self._mark_temp_estimated()
 
         return readings
+
+    def _mark_temp_estimated(self):
+        """Flip the temperature tile label to '~Temp' when values are inferred."""
+        try:
+            info = self.all_sensors.get("cpu_temperature")
+            if info and not info["label"].startswith("~"):
+                info["label"] = "~" + info["label"]
+                lbl = info.get("value_label_widget")
+                master_lbl = None
+                for device_frame in self.sensor_frames.values():
+                    for row in range(1, self.frame_widget_rows.get(info["device"], 1)):
+                        try:
+                            cand = device_frame.grid_slaves(row=row, column=1)[0]
+                            if cand.cget("text").rstrip(":") in ("Temperature", "~Temperature"):
+                                master_lbl = cand
+                                break
+                        except IndexError:
+                            continue
+                    if master_lbl:
+                        master_lbl.config(text="~Temperature:")
+                        break
+        except Exception:
+            pass
 
     def _detect_nvidia_smi(self):
         """Return the nvidia-smi executable path if a query succeeds, else None."""
@@ -785,6 +1017,75 @@ class SensorTrackerApp:
         except Exception:
             self._no_wmi_temp = True   # don't retry-spam every cycle
         return None
+
+    def _register_fan_sensors(self):
+        """Pre-register fan tiles when any fan source is available."""
+        count = 0
+        try:
+            if hasattr(psutil, 'sensors_fans'):
+                fans = psutil.sensors_fans() or {}
+                for chip, entries in fans.items():
+                    count += len(entries)
+                    break
+        except Exception:
+            pass
+        if not count:
+            if self._query_hardware_monitor(want="Fan"):
+                count = 2
+        for i in range(min(count, 2)):
+            key = "fan_cpu" if i == 0 else f"fan_{i+1}"
+            self.all_sensors[key] = {"device": "Cooling", "label": "Fan RPM" if i == 0 else f"Fan {i+1} RPM",
+                                     "unit": "RPM", "type": "fan_rpm", "var": tk.StringVar(),
+                                     "history": [], "last_valid_reading": None}
+
+    def _query_hardware_monitor(self, want=None):
+        """Read LibreHardwareMonitor/OpenHardwareMonitor WMI namespaces.
+
+        These expose genuine motherboard/CPU/GPU sensor values (temps, fan
+        RPMs, loads, voltages). Returns a list of dicts:
+        [{"name":..., "type": "Temperature|Fan|Load", "value": float}, ...]
+        `want` filters by SensorType; returns [] when unavailable.
+        """
+        if getattr(self, "_no_hwmon", False):
+            return []
+        try:
+            import wmi  # optional dependency
+        except ImportError:
+            self._no_hwmon = True
+            return []
+        for ns in (r"root\LibreHardwareMonitor", r"root\OpenHardwareMonitor"):
+            try:
+                conn = getattr(self, "_hwmon_conn", None)
+                if conn and getattr(self, "_hwmon_ns", None) == ns:
+                    pass
+                else:
+                    conn = wmi.WMI(namespace=ns)
+                    self._hwmon_conn = conn
+                    self._hwmon_ns = ns
+                rows = []
+                for s in conn.Sensor():
+                    stype = s.SensorType
+                    if want and stype != want:
+                        continue
+                    if s.Value is None:
+                        continue
+                    rows.append({"name": s.Name, "type": stype,
+                                 "parent": (s.Parent or "")[-24:], "value": float(s.Value)})
+                return rows
+            except Exception:
+                continue
+        self._no_hwmon = True
+        return []
+
+    def _estimate_cpu_temp(self, load_percent):
+        """Infer an approximate CPU temperature from sustained load.
+
+        Used ONLY when no hardware temperature source responds anywhere.
+        Rough but surprisingly usable model: idle ~35C, +~45C at full tilt.
+        """
+        base, span = 34.0, 46.0
+        est = base + span * max(0.0, min(1.0, load_percent / 100.0))
+        return round(est, 1)
 
     def update_sensors(self):
         current_time = time.strftime("%H:%M:%S")

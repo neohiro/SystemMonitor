@@ -11,19 +11,25 @@ Autodetects sensors:
 - Network usage (+ latency)
 - CPU usage & frequency
 - RAM usage
-- CPU temperature (Linux via psutil/sysfs; Windows via WMI thermal zone where the board supports it — optional `pip install wmi`)
-- GPU usage & temperature (NVIDIA via nvidia-smi, auto-detected)
+- Disk usage, free space **and live read/write throughput**
+- CPU temperature - full priority chain: LibreHardwareMonitor/OpenHardwareMonitor → Linux psutil/sysfs → Windows WMI thermal zone → load-based estimate (labelled `~Temp` when inferred)
+- GPU usage & temperature (NVIDIA via nvidia-smi, or hardware-monitor backends)
+- Fan speeds (hardware monitor / Linux psutil)
 - Battery percentage (laptops)
 
-Tiles for optional sensors appear automatically only when the underlying hardware/dependency is available.
+Tiles for optional sensors appear automatically only when the underlying hardware/dependency is available. Install the optional backend once to unlock everything: `pip install wmi` (Windows) and/or run [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) for true motherboard sensor values.
 
-## 📌 Widget mode (always visible)
+## 🧊 Futuristic tiles
 
-Right-click the **System Monitor** title and enable **"Widget mode (always visible)"** to keep the monitor pinned to your desktop:
+Every device group renders as a rounded glass card with a soft accent glow, theme-aware palette and inline sparkline graphs.
 
-- **Windows** – survives *Show Desktop* (Win+D), Win+M and virtual-desktop switches; styled as a tool window so it never steals focus or shows in the taskbar.
-- **Linux/X11** – dock-type window: sticky across workspaces, always-on-top, no taskbar entry (wmctrl hints where supported).
-- **macOS** – stays above other windows.
+## 📌 Widget mode (lives on your desktop)
+
+Right-click the **System Monitor** title and enable **"Widget mode"** to pin the monitor onto the desktop layer itself:
+
+- **Windows** – embedded into the shell's wallpaper layer (same approach as Rainmeter): it sits *behind every window* — never on top of your programs — yet survives *Show Desktop* (Win+D), Win+M and virtual-desktop switches. Explorer restarts are detected and re-embedded automatically.
+- **Linux/X11** – desktop-type window: sticky across workspaces, below other windows, no taskbar entry (wmctrl hints where supported).
+- **macOS** – normal window kept out of the way (desktop layer needs PyObjC; best-effort).
 
 The setting is remembered in `~/.config/system-monitor/config.json` and restored on the next launch.
 
